@@ -1,5 +1,8 @@
 #!/bin/zsh
-# Compile Temps.app (barre des menus) à côté des scripts Python.
+# Compile Temps.app (barre des menus) à côté des scripts Python, qu'elle lance elle-même.
+# macOS lie les accès (disque, Accessibilité, Automatisation) à la signature : avec la signature
+# ad hoc par défaut, chaque recompilation les fait redemander. Pour les garder, signez avec un
+# certificat de votre trousseau : TEMPS_SIGN="Apple Development: …" ./build.sh
 set -e
 # Identifiant de l'app ; à changer pour votre propre version : TEMPS_ID=com.example.temps ./build.sh
 ID=${TEMPS_ID:-io.github.temps}
@@ -22,12 +25,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Temps</string>
   <key>CFBundleIconFile</key><string>Temps</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Lire la fenêtre et le fichier au premier plan.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
-codesign --force --sign - "$APP"
+codesign --force --sign "${TEMPS_SIGN:--}" "$APP"
 echo "$APP"

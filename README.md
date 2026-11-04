@@ -46,18 +46,17 @@ You need macOS 14 or later, Python 3.11 or later (from [python.org](https://www.
 ```bash
 git clone https://github.com/viktorvuka/temps.git
 cd temps
-./macos/engine/build.sh
 ./macos/build.sh
 open Temps.app
 ```
 
-This builds two apps in the folder. `Temps Engine.app` does the background work (the recorder and a small local server on 127.0.0.1:8230); `Temps.app` is the interface. On first launch:
+This builds `Temps.app` in the folder. It is the interface, and it also runs the background work: the recorder and a small local server on 127.0.0.1:8230. On first launch:
 
-1. In **System Settings > Privacy & Security > Full Disk Access**, add `Temps Engine.app`. Without it, Temps cannot read Screen Time.
+1. In **System Settings > Privacy & Security > Full Disk Access**, add `Temps.app`. Without it, Temps cannot read Screen Time.
 2. macOS then asks for **Accessibility** and **Automation** (System Events, Mail, Safari…): accept, this is how Temps reads the file and window in front.
 3. For iPhone and iPad, turn on **Share Across Devices** in Screen Time.
 
-For your own build, give it your own identifier: `TEMPS_ID=com.example.temps ./macos/build.sh` (same for the engine). Each rebuild of the engine asks for the permissions again; the interface can be rebuilt freely.
+For your own build, give it your own identifier: `TEMPS_ID=com.example.temps ./macos/build.sh`. macOS asks for the permissions again after each rebuild. To avoid that, sign the app with a certificate from your keychain (the one Xcode creates for a free Apple ID is enough): `TEMPS_SIGN="Apple Development: …" ./macos/build.sh`.
 
 ## Settings
 
@@ -79,7 +78,7 @@ While the window is open, Temps has its own menu: ⌘1 to ⌘6 for the sections,
 
 ## Demo mode
 
-To try the interface without your data, or to take screenshots: quit Temps, run `TEMPS_DEMO=1 TEMPS_LANGUE=en python3 server.py`, then open `Temps.app`. Demo rules live apart and never touch yours. An imaginary studio, three clients and a class fill the screens.
+To try the interface without your data, or to take screenshots: quit Temps and reopen it with `open Temps.app --args --demo`. Demo rules live apart and never touch yours. An imaginary studio, three clients and a class fill the screens.
 
 ## Privacy
 

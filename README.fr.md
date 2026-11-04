@@ -51,18 +51,17 @@ Il te faut macOS 14 ou plus récent, Python 3.11 ou plus récent (celui de [pyth
 ```bash
 git clone https://github.com/viktorvuka/temps.git
 cd temps
-./macos/engine/build.sh
 ./macos/build.sh
 open Temps.app
 ```
 
-Tu obtiens deux apps dans le dossier : `Temps Engine.app` travaille en arrière-plan (l'enregistreur et un petit serveur local sur 127.0.0.1:8230), et `Temps.app` est l'interface. Au premier lancement :
+`Temps.app` apparaît dans le dossier. C'est l'interface, et c'est elle qui fait tourner en arrière-plan l'enregistreur et un petit serveur local sur 127.0.0.1:8230. Au premier lancement :
 
-1. Dans Réglages Système > Confidentialité et sécurité > Accès complet au disque, ajoute `Temps Engine.app`. Sans ça, Temps ne peut pas lire le temps d'écran.
+1. Dans Réglages Système > Confidentialité et sécurité > Accès complet au disque, ajoute `Temps.app`. Sans ça, Temps ne peut pas lire le temps d'écran.
 2. macOS te demande ensuite l'Accessibilité et l'Automatisation pour plusieurs apps : accepte, c'est ce qui permet de lire la fenêtre et le fichier au premier plan.
 3. Pour l'iPhone et l'iPad, active « Partager entre les appareils » dans Temps d'écran.
 
-Si tu compiles ta propre version, donne-lui ton identifiant : `TEMPS_ID=com.exemple.temps ./macos/build.sh` (pareil pour le moteur). À chaque recompilation du moteur, macOS redemande les accès ; l'interface, elle, se recompile sans souci.
+Si tu compiles ta propre version, donne-lui ton identifiant : `TEMPS_ID=com.exemple.temps ./macos/build.sh`. Attention, macOS redemande les accès à chaque recompilation. Pour l'éviter, signe l'app avec un certificat de ton trousseau (celui que Xcode crée avec un identifiant Apple gratuit suffit) : `TEMPS_SIGN="Apple Development: …" ./macos/build.sh`.
 
 ## Réglages
 
@@ -84,7 +83,7 @@ Quand la fenêtre est ouverte, Temps a son propre menu : ⌘1 à ⌘6 pour passe
 
 ## Mode démo
 
-Pour essayer sans tes données (ou faire des captures comme celles-ci), quitte Temps, lance `TEMPS_DEMO=1 python3 server.py`, puis ouvre `Temps.app`. Un studio imaginaire avec trois clients et un cours remplit les écrans, et ses règles sont rangées à part : elles ne touchent jamais aux tiennes.
+Pour essayer sans tes données (ou faire des captures comme celles-ci), quitte Temps et relance-la avec `open Temps.app --args --demo`. Un studio imaginaire avec trois clients et un cours remplit les écrans, et ses règles sont rangées à part : elles ne touchent jamais aux tiennes.
 
 ## Confidentialité
 

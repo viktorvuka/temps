@@ -303,23 +303,77 @@ func duree(_ s: Double) -> String {
     return m >= 60 ? "\(m / 60) h \(String(format: "%02d", m % 60))" : "\(m) min"
 }
 
-// MARK: - Moteur (scripts Python du prototype)
+// MARK: - Moteur (scripts Python)
 
-/// Le moteur vit dans « Temps Engine.app », à côté de Temps.app : c'est elle qui porte les accès
-/// (disque, Accessibilité, Automatisation), et elle n'est pas recompilée avec l'interface.
+/// Temps lance lui-même l'enregistreur et le serveur Python, rangés à côté de Temps.app, et les
+/// relance s'ils s'arrêtent. Les accès macOS (disque, Accessibilité, Automatisation) sont ceux de
+/// Temps.app : macOS les attribue à l'app qui a lancé les scripts.
+/// `open Temps.app --args --demo` lance seulement le serveur, sur les données de démonstration.
 final class Moteur {
-    static let id = (Bundle.main.bundleIdentifier ?? "temps") + ".engine"
-    static let app = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Temps Engine.app")
+    static let dossier = Bundle.main.bundleURL.deletingLastPathComponent()
+    static let donnees = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Temps")
+    /// Python 3.11 ou plus récent (tomllib) : Homebrew, python.org, puis celui du système.
+    static let python = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/usr/bin/python3"
+    let demo = CommandLine.arguments.contains("--demo")
+    var scripts: [String] { demo ? ["server.py"] : ["recorder.py", "server.py"] }
+    private var enfants: [String: Process] = [:]
+    private var minuteur: Timer?
+    private var pids: URL { Moteur.donnees.appendingPathComponent("moteur.pid") }
 
     func demarrer() {
-        guard NSRunningApplication.runningApplications(withBundleIdentifier: Moteur.id).isEmpty else { return }
-        let conf = NSWorkspace.OpenConfiguration()
-        conf.activates = false
-        NSWorkspace.shared.openApplication(at: Moteur.app, configuration: conf)
+        try? FileManager.default.createDirectory(at: Moteur.donnees, withIntermediateDirectories: true)
+        nettoyer()
+        for s in scripts { lancer(s) }
+        minuteur = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            for s in self.scripts where self.enfants[s]?.isRunning != true { self.lancer(s) }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.arreter()
+        }
     }
 
     func arreter() {
-        NSRunningApplication.runningApplications(withBundleIdentifier: Moteur.id).forEach { $0.terminate() }
+        minuteur?.invalidate()
+        enfants.values.forEach { $0.terminate() }
+        enfants = [:]
+        try? FileManager.default.removeItem(at: pids)
+    }
+
+    private func lancer(_ script: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: Moteur.python)
+        var env = ProcessInfo.processInfo.environment
+        env["TEMPS_LANGUE"] = Locale.preferredLanguages.first.map { String($0.prefix(2)) } ?? "en"
+        if demo { env["TEMPS_DEMO"] = "1" }
+        p.environment = env
+        p.arguments = [Moteur.dossier.appendingPathComponent(script).path]
+        p.currentDirectoryURL = Moteur.dossier
+        let journal = Moteur.donnees.appendingPathComponent("journal.log")
+        if !FileManager.default.fileExists(atPath: journal.path) { FileManager.default.createFile(atPath: journal.path, contents: nil) }
+        if let h = try? FileHandle(forWritingTo: journal) { h.seekToEndOfFile(); p.standardOutput = h; p.standardError = h }
+        try? p.run()
+        enfants[script] = p
+        let liste = enfants.values.filter(\.isRunning).map { String($0.processIdentifier) }
+        try? liste.joined(separator: "\n").write(to: pids, atomically: true, encoding: .utf8)
+    }
+
+    /// Arrête les scripts laissés par une session de Temps qui ne s'est pas fermée proprement.
+    private func nettoyer() {
+        guard let texte = try? String(contentsOf: pids, encoding: .utf8) else { return }
+        for ligne in texte.split(separator: "\n") {
+            if let pid = pid_t(ligne), Moteur.estPython(pid) { kill(pid, SIGTERM) }
+        }
+        try? FileManager.default.removeItem(at: pids)
+    }
+
+    /// Vrai si le processus est bien un des scripts Python de Temps (un numéro peut avoir été réattribué).
+    private static func estPython(_ pid: pid_t) -> Bool {
+        var nom = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &nom, UInt32(nom.count)) > 0 else { return false }
+        return String(cString: nom).lowercased().contains("python")
     }
 }
 

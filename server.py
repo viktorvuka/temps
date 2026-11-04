@@ -54,8 +54,8 @@ class Gestion(SimpleHTTPRequestHandler):
         try:
             tous = rapport.historique()
         except PermissionError:
-            return self.json({"erreur": rapport.tr("Accès complet au disque refusé : à accorder à Temps Engine (Réglages Système > Confidentialité et sécurité).",
-                                                   "Full Disk Access denied: grant it to Temps Engine (System Settings > Privacy & Security).")})
+            return self.json({"erreur": rapport.tr("Accès complet au disque refusé : à accorder à Temps (Réglages Système > Confidentialité et sécurité).",
+                                                   "Full Disk Access denied: grant it to Temps (System Settings > Privacy & Security).")})
         if "jour" in q:
             # un seul jour, choisi dans l'histogramme
             debut = rapport.minuit(float(q["jour"][0]) + 3600)
@@ -84,8 +84,8 @@ class Gestion(SimpleHTTPRequestHandler):
         try:
             tous = rapport.historique()
         except PermissionError:
-            return self.json({"erreur": rapport.tr("Accès complet au disque refusé : à accorder à Temps Engine (Réglages Système > Confidentialité et sécurité).",
-                                                   "Full Disk Access denied: grant it to Temps Engine (System Settings > Privacy & Security).")})
+            return self.json({"erreur": rapport.tr("Accès complet au disque refusé : à accorder à Temps (Réglages Système > Confidentialité et sécurité).",
+                                                   "Full Disk Access denied: grant it to Temps (System Settings > Privacy & Security).")})
         if url.path == "/export":
             corps = rapport.export_csv(tous, q.get("mois", [time.strftime("%Y-%m")])[0]).encode()
             self.send_response(200)

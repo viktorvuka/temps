@@ -19,7 +19,7 @@ LANGUE = os.environ.get("TEMPS_LANGUE", "fr")[:2]
 
 
 def tr(fr, en):
-    """Message dans la langue de l'app (passée par Temps Engine)."""
+    """Message dans la langue de l'app (passée par Temps.app)."""
     return fr if LANGUE == "fr" else en
 JOUR = 86400
 
