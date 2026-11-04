@@ -1,0 +1,48 @@
+# Temps sorting rules. The first rule that matches wins.
+# Any file stored under a projects root is sorted automatically: “Group / Project”.
+# A category is a project unless it is listed in [familles] (activities or off work).
+# The app edits this file too: sort, rename, organize, color.
+# Section names stay in French (Temps was written in French); each one is explained below.
+
+[dossiers]  # projects roots: each top-level folder is a group, each subfolder a project
+racines = ["~/Documents/Projects"]
+intermediaires = ["Clients"]   # pass-through folders: Studio/Clients/Smith/… becomes “Studio / Smith”
+racine_nom = ""                # category for files at the root (empty: unsorted)
+
+[familles]  # families: activites = activities, hors_travail = off work; everything else is a project
+activites = ["Mail", "Admin", "Planning"]
+hors_travail = ["Personal", "Social media"]
+
+[noms]      # names: category → displayed name
+# "Studio / Smith" = "Smith & Co"
+
+[alias]     # aliases: old path → new path, when a folder was renamed or moved
+# "~/Documents/Projects/Studio/Clients/Old" = "~/Documents/Projects/Studio/Clients/New"
+
+[reperes]   # weekly targets: hours to reach (heures) or a cap (plafond), on a category or a group
+# "Studio" = { heures = 20 }
+# "Social media" = { plafond = 5 }
+
+[projets]   # project sheets: hours sold (vendu), amount excl. tax (montant), billable (facturable)
+# "Studio / Smith" = { vendu = 40, montant = 3000, facturable = true }
+
+[couleurs]  # colors: group, or sub-project “Group / Project” → a palette name (bleu, bleu nuit, ciel, turquoise, vert, olive,
+            # jaune, ocre, rouge, framboise, rose, violet, lavande, brun, ardoise, gris) or “#rrggbb”
+# "Studio" = "bleu"
+
+[chemins]   # paths: path prefix → category
+# "~/Desktop/Invoices/" = "Admin"
+
+[titres]    # titles: text in a window title, URL, mail address (“@domain.com”, “account / mailbox”) or Claude session → category
+# "github.com" = "Studio / Tools"
+
+[apps]      # apps: app identifier → category, when nothing else applies
+"com.apple.mail" = "Mail"
+"com.apple.MobileSMS" = "Personal"
+"com.apple.iCal" = "Planning"
+"com.burbn.instagram" = "Social media"
+"com.reddit.Reddit" = "Social media"
+"net.whatsapp.WhatsApp" = "Personal"
+
+[ignorer]   # ignored: lock screen, system transitions
+bundles = ["com.apple.loginwindow", "com.apple.SleepLockScreen", "com.apple.ScreenTimeUnlock", "com.apple.springboard", "com.apple.ScreenSaver.Engine"]

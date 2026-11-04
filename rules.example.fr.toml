@@ -1,0 +1,47 @@
+# Règles de classement de Temps. La première qui correspond l'emporte.
+# Tout fichier rangé sous une racine de projets est classé d'office : « Groupe / Projet ».
+# Une catégorie est un projet, sauf si elle figure dans [familles].
+# Ce fichier se modifie aussi depuis l'app : classer, renommer, organiser, colorer.
+
+[dossiers]  # racines de projets : chaque dossier de premier niveau est un groupe, chaque sous-dossier un projet
+racines = ["~/Documents/Projets"]
+intermediaires = ["Clients"]   # dossiers-paniers sautés : Studio/Clients/Dupont/… donne « Studio / Dupont »
+racine_nom = ""                # catégorie des fichiers posés à la racine (vide : non classés)
+
+[familles]
+activites = ["Mail", "Admin", "Organisation"]
+hors_travail = ["Perso", "Réseaux sociaux"]
+
+[noms]      # catégorie → nom affiché
+# "Studio / Dupont" = "Atelier Dupont"
+
+[alias]     # ancien chemin → nouveau chemin, quand un dossier a été renommé ou déplacé
+# "~/Documents/Projets/Studio/Clients/Ancien" = "~/Documents/Projets/Studio/Clients/Nouveau"
+
+[reperes]   # semaine en cours : objectif (heures) ou plafond, sur une catégorie ou un groupe
+# "Studio" = { heures = 20 }
+# "Réseaux sociaux" = { plafond = 5 }
+
+[projets]   # fiche par catégorie : heures vendues au devis, montant HT, facturable
+# "Studio / Dupont" = { vendu = 40, montant = 3000, facturable = true }
+
+[couleurs]  # groupe, ou sous-projet « Groupe / Projet » → teinte (bleu, bleu nuit, ciel, turquoise, vert, olive, jaune, ocre,
+            # rouge, framboise, rose, violet, lavande, brun, ardoise, gris) ou « #rrggbb »
+# "Studio" = "bleu"
+
+[chemins]   # début de chemin → catégorie
+# "~/Desktop/Factures/" = "Admin"
+
+[titres]    # texte dans le titre de fenêtre, l'URL, l'adresse mail (« @domaine.fr », « compte / boîte ») ou la session Claude → catégorie
+# "github.com" = "Studio / Outils"
+
+[apps]      # identifiant d'app → catégorie, quand rien d'autre ne parle
+"com.apple.mail" = "Mail"
+"com.apple.MobileSMS" = "Perso"
+"com.apple.iCal" = "Organisation"
+"com.burbn.instagram" = "Réseaux sociaux"
+"com.reddit.Reddit" = "Réseaux sociaux"
+"net.whatsapp.WhatsApp" = "Perso"
+
+[ignorer]   # écran verrouillé, transitions système
+bundles = ["com.apple.loginwindow", "com.apple.SleepLockScreen", "com.apple.ScreenTimeUnlock", "com.apple.springboard", "com.apple.ScreenSaver.Engine"]

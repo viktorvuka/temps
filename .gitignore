@@ -1,0 +1,5 @@
+rules.toml
+*.app/
+__pycache__/
+.DS_Store
+macos/icon/Temps.iconset/
