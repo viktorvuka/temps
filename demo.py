@@ -25,7 +25,12 @@ hors_travail = ["Perso", "Réseaux sociaux"]
 "Studio" = "bleu"
 "Enseignement" = "jaune"
 "Association" = "violet"
-"Studio / Maison Lumen" = "ciel"
+[domaines]
+"Studio" = { nature = "projets", projets = ["Studio"] }
+"Enseignement" = { nature = "projets", projets = ["Enseignement"] }
+"Association" = { nature = "projets", projets = ["Association"] }
+"Activités" = { nature = "activites", projets = [] }
+"Hors travail" = { nature = "hors_travail", projets = [] }
 [chemins]
 [titres]
 [apps]
@@ -34,7 +39,8 @@ bundles = []
 """
 REGLES_EN = (REGLES_FR.replace('"Organisation"', '"Planning"').replace('"Perso"', '"Personal"')
              .replace('"Réseaux sociaux"', '"Social media"').replace('"Enseignement"', '"Teaching"')
-             .replace('"Association"', '"Non-profit"'))
+             .replace('"Association"', '"Non-profit"')
+             .replace('"Activités" =', '"Activities" =').replace('"Hors travail" =', '"Off work" ='))
 
 import report as rapport  # noqa: E402 (après les règles, que rapport lit au premier lancement)
 
@@ -42,9 +48,9 @@ FR = rapport.LANGUE == "fr"
 
 # (catégorie, poids, [(appareil, app, contexte), …])
 PROJETS = [
-    ("Studio / Atelier Nord", 5, [("Mac", "com.adobe.InDesign", "Nord-catalogue-v4.indd"),
-                                  ("Mac", "com.figma.Desktop", "Atelier Nord — site"),
-                                  ("Mac", "com.apple.Safari", "ateliernord.fr")]),
+    ("Studio / Atelier Nord", 3, [("Mac", "com.adobe.InDesign", "Nord-catalogue-v4.indd")]),
+    ("Studio / Atelier Nord / Site web" if FR else "Studio / Atelier Nord / Website", 2,
+     [("Mac", "com.figma.Desktop", "Atelier Nord — site"), ("Mac", "com.apple.Safari", "ateliernord.fr")]),
     ("Studio / Maison Lumen", 4, [("Mac", "com.adobe.Illustrator", "Lumen-logo-pistes.ai"),
                                   ("Mac", "com.anthropic.claudefordesktop", "Charte Maison Lumen")]),
     ("Studio / Café Brume", 2, [("Mac", "com.adobe.Photoshop", "Brume-menu-hiver.psd"),

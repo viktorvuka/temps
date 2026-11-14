@@ -46,3 +46,9 @@ hors_travail = ["Personal", "Social media"]
 
 [ignorer]   # ignored: lock screen, system transitions
 bundles = ["com.apple.loginwindow", "com.apple.SleepLockScreen", "com.apple.ScreenTimeUnlock", "com.apple.springboard", "com.apple.ScreenSaver.Engine"]
+
+[plages]    # a time range sorts whatever nothing else sorts, on the Mac
+# "2026-11-10 14:00-17:00" = "Studio / Smith"
+
+[archives]  # finished projects: hidden from lists, their time still counts
+# "Studio / Smith" = true

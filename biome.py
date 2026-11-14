@@ -6,6 +6,7 @@ BIOME = Path.home() / "Library/Biome"
 INFOCUS = BIOME / "streams/restricted/App.InFocus"
 MAC_EPOCH = 978307200  # 2001-01-01 en temps Unix
 PLATEFORMES = {1: "iPad", 2: "iPhone", 4: "Mac", 5: "Apple TV", 7: "Watch"}
+INCONNU = "Autre appareil"  # dossier distant absent de la base de synchro (souvent la montre)
 
 
 def _varint(b, i):
@@ -68,7 +69,7 @@ def appareils():
     try:
         con = sqlite3.connect(f"file:{BIOME}/sync/sync.db?mode=ro", uri=True)
         for ident, moi, plat in con.execute("select device_identifier, me, platform from DevicePeer"):
-            noms[ident] = "Mac" if moi else PLATEFORMES.get(plat, f"appareil {plat}")
+            noms[ident] = "Mac" if moi else PLATEFORMES.get(plat, INCONNU)
     except sqlite3.Error:
         pass
     return noms
@@ -78,7 +79,7 @@ def sessions(depuis=0.0):
     """Liste de (appareil, bundle, debut, fin) en temps Unix."""
     noms = appareils()
     sources = [("Mac", INFOCUS / "local")]
-    sources += [(noms.get(d.name, "?"), d) for d in (INFOCUS / "remote").iterdir() if d.is_dir()]  # PermissionError sans accès complet au disque
+    sources += [(noms.get(d.name, INCONNU), d) for d in (INFOCUS / "remote").iterdir() if d.is_dir()]  # PermissionError sans accès complet au disque
     sortie = []
     for nom, dossier in sources:
         evts = []

@@ -10,7 +10,7 @@ I built it for my own use as an independent graphic designer: I wanted to know h
 
 ## What you do with it
 
-**In the menu bar**, today's total of work. Click it and a panel shows the last seven days as bars colored by project group (click a bar to see that day), your weekly targets, then the time per project. Each line opens up on what it is made of: files, websites, messages…
+**In the menu bar**, today's total of work. Click it and a panel shows the last seven days as bars colored by domain (click a bar to see that day), your weekly targets, then the time per project, grouped by domain. Each line opens up on what it is made of: files, websites, messages…
 
 **Sorting what is unsorted.** “Unsorted” time is orange, because it is the one thing to act on. Click a line to open the Sort screen: choose the scope (this site or the whole domain, this contact or the whole mailbox, the whole app), then the project, which you can create by typing its name. The rule applies to all past time too, and an “Undo” bar stays for a few seconds.
 
@@ -18,19 +18,33 @@ I built it for my own use as an independent graphic designer: I wanted to know h
 
 **Suggestions** come from what you have already sorted: a site, a title or a word that almost always leads to the same project. One button accepts them all, and a single undo takes them back. There is no AI involved, it is plain computation on your Mac.
 
-**The window** (“Open Temps”) gives the overview over 7, 30 or 90 days, with the billable hours of the period.
+**Unsorted time** has its own card at the top. After a few days away, “Sort one by one” opens the To sort section of the window: lines on the left, longest first, the Sort screen on the right with its suggestion ready. Return accepts it, ⌘→ skips.
+
+**The window** (“Open Temps”) has three views at the top and the period on the right: today, yesterday, a week, a month, a quarter, a year, or dates you pick in the calendar. The arrows move back or forward by a whole period.
+
+**Overview** shows the work of the period day by day, the billable hours, your weekly targets, then one card per domain with its projects.
 
 ![Overview](captures/en/3-vue-ensemble.png)
 
-**Projects** is a table you fill in place: hours sold in the quote, amount, billable or not, weekly target. The Review column tells you right away whether there is time to spare or you went over.
+On a single day, the chart gives way to a ribbon colored by project, with details on hover (clicking a bar of the chart gets you there too).
+
+**Projects** sorts everything on three levels: the domain (Studio, Teaching, a non-profit…), the project, and the mission when a client comes back for a new job. A domain has a nature (projects, activities such as mail or admin, off work) and a color, and each of its projects takes a shade of it.
+
+On the left, the list. Create a domain, a project or a mission there, drag a project from one domain to another, double-click to rename. Right-click does the rest: archive a finished project (it leaves the lists, its time still counts), merge two projects, delete.
+
+On the right, the sheet of the selected project. Fill in the hours sold, the amount of the quote, billable or not, and a weekly target if you want one. The review tells you right away whether there is time to spare or you went over. Below comes the detail of the period: days, apps, files, websites and sessions.
 
 ![Projects](captures/en/4-projets.png)
 
+A mission can start on a date: from that day on, the project's time goes to it. And when a file or a website landed in the wrong place, “Move”, shown when you hover its line in the sheet, sends it to another project.
+
+For what happens away from the Mac (a meeting, an appointment, an hour of sketching), “+ Range” adds a time range by hand, from the panel or from a project's sheet: the day, start and end times, and a note.
+
 **Review** compares, project by project, actual hours with hours sold, and the actual hourly rate with the quoted one.
 
-**Organize** gathers all categories into three families (Projects, Activities, Off work). Drag a category onto a family to move it there, or onto another category to make it a sub-project. Double-click to rename, click a dot to change the color (of a group, or of a single client within its group's shades), and right-click to move under a group or delete.
+![Review](captures/en/5-bilan.png)
 
-**Apps** shows the time per application and the category where each one spends most of it. **Export** writes one CSV per month, ready for Numbers or Excel.
+**Settings** (⌘,) show whether Temps has its permissions, with a button to each pane of System Settings. They also hold launch at login, a Friday afternoon reminder when more than 2 hours of the week are unsorted, the monthly CSV export for Numbers or Excel, and the list of all your sorting rules, to fix or remove in place. One option files short moments (under ten minutes in the day, with no rule to sort them) with the project around them.
 
 ## How Temps counts
 
@@ -70,11 +84,16 @@ On first launch, Temps creates `rules.toml` next to the code, from `rules.exampl
 | `[noms]`, `[alias]` | A category's displayed name, and the link when a folder was renamed. |
 | `[projets]` | Project sheets: hours sold (`vendu`), amount excl. tax in your Mac's currency (`montant`), billable (`facturable`). |
 | `[reperes]` | Weekly targets (`heures`) or caps (`plafond`). |
-| `[couleurs]` | The color of a group or a sub-project. |
+| `[domaines]` | Domains, in their order: their nature and the projects they hold. |
+| `[missions]` | The start date of a mission. |
+| `[couleurs]` | The color of a domain. |
+| `[archives]`, `[fusions]` | Archived projects, and projects merged into another one. |
+| `[forcer]` | A file or website moved by hand: this rule comes before all others. |
+| `[reglages]` | Short moments: under how many minutes they are filed with what surrounds them (`lissage`, 0 to turn it off). |
 
 ## Shortcuts
 
-While the window is open, Temps has its own menu: ⌘1 to ⌘6 for the sections, ⌃⌘S for the sidebar, ⌘E to export the current month.
+While the window is open, Temps has its own menu: ⌘1 to ⌘4 for To sort, Overview, Projects and Review, ⌘E to export the current month.
 
 ## Demo mode
 
@@ -82,7 +101,7 @@ To try the interface without your data, or to take screenshots: quit Temps and r
 
 ## Privacy
 
-Nothing leaves your Mac. Records live in `~/Library/Application Support/Temps/`, the server only listens on 127.0.0.1, and there is no account, no telemetry and no third-party service.
+Nothing leaves your Mac. Records live in `~/Library/Application Support/Temps/`, the server only listens on 127.0.0.1 and only answers Temps (a web page open in your browser cannot read anything from it), and there is no account, no telemetry and no third-party service.
 
 ## Limits
 

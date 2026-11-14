@@ -62,14 +62,17 @@ def main():
     BASE.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(BASE)
     con.execute("create table if not exists releves (t real, duree real, bundle text, titre text, doc text, inactif int)")
+    con.execute("create index if not exists releves_t on releves (t)")  # chaque lecture et chaque retrait d'inactivité cherchent par date
     while True:
         t = time.time()
-        try:
-            bundle, titre, doc = releve()
-        except Exception:
-            bundle, titre, doc = "", "", ""
         repos = inactivite()
         inactif = repos > INACTIF and not media_en_cours()
+        bundle, titre, doc = "", "", ""
+        if not inactif:  # personne devant l'écran : on n'interroge aucune app
+            try:
+                bundle, titre, doc = releve()
+            except Exception:
+                pass
         if inactif:
             # toute la période sans clavier ni souris est retirée, pas seulement ce qui suit le seuil
             con.execute("update releves set inactif = 1 where t >= ? and inactif = 0", (t - repos,))

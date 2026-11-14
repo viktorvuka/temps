@@ -3,10 +3,10 @@ import json, os, re, tomllib
 from pathlib import Path
 
 FICHIER = (Path(os.environ["TEMPS_REGLES"]) if os.environ.get("TEMPS_REGLES")
-           else Path.home() / "Library/Application Support/Temps/demo/regles.toml" if os.environ.get("TEMPS_DEMO")
+           else Path.home() / "Library/Application Support/Temps/demo/rules.toml" if os.environ.get("TEMPS_DEMO")
            else Path(__file__).resolve().parent / "rules.toml")
 LANGUE = os.environ.get("TEMPS_LANGUE", "fr")[:2]
-SECTIONS = {"titres", "apps", "chemins", "noms", "projets", "reperes", "couleurs"}
+SECTIONS = {"titres", "apps", "chemins", "noms", "projets", "reperes", "couleurs", "plages", "archives", "missions", "reglages", "forcer", "fusions", "domaines"}
 
 
 def _valeur(v):
@@ -14,7 +14,8 @@ def _valeur(v):
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, dict):
-        return "{ " + ", ".join(f"{k} = {_valeur(x)}" for k, x in v.items() if x is not None) + " }"
+        cle = lambda k: k if re.fullmatch(r"[A-Za-z0-9_-]+", k) else json.dumps(k, ensure_ascii=False)
+        return "{ " + ", ".join(f"{cle(k)} = {_valeur(x)}" for k, x in v.items() if x is not None) + " }"
     return json.dumps(v, ensure_ascii=False)
 
 
@@ -35,6 +36,8 @@ def poser(section, motif, valeur):
     if section not in SECTIONS:
         raise ValueError(f"Section inconnue : {section}")
     lignes = FICHIER.read_text().splitlines()
+    if not any(re.match(rf"\[{section}\]", l.strip()) for l in lignes):
+        lignes += ["", f"[{section}]"]
     debut, fin = _section(lignes, section)
     nouvelle = f"{json.dumps(motif, ensure_ascii=False)} = {_valeur(valeur)}"
     avant = None
@@ -55,6 +58,39 @@ def retirer(section, motif):
     debut, fin = _section(lignes, section)
     lignes = [l for i, l in enumerate(lignes) if not (debut < i < fin and _cle(l) == motif)]
     _ecrire(lignes)
+
+
+def remplacer(section, ancien, motif, valeur):
+    """Change le motif ou la catégorie d'une règle, à sa place dans le fichier. Rend l'ancienne valeur."""
+    if section not in SECTIONS:
+        raise ValueError(f"Section inconnue : {section}")
+    lignes = FICHIER.read_text().splitlines()
+    debut, fin = _section(lignes, section)
+    nouvelle = f"{json.dumps(motif, ensure_ascii=False)} = {_valeur(valeur)}"
+    for i in range(debut + 1, fin):
+        if _cle(lignes[i]) == ancien:
+            avant = tomllib.loads(lignes[i])[ancien]
+            lignes = [l for j, l in enumerate(lignes) if not (debut < j < fin and j != i and _cle(l) == motif)]
+            i = next(j for j, l in enumerate(lignes) if debut < j and _cle(l) == ancien)
+            lignes[i] = nouvelle
+            _ecrire(lignes)
+            return avant
+    raise KeyError(ancien)
+
+
+def ecrire_domaines(liste):
+    """Réécrit toute la section [domaines] dans l'ordre donné : [{nom, nature, projets}]. Rend le texte d'avant."""
+    avant = FICHIER.read_text()
+    lignes = avant.splitlines()
+    if not any(re.match(r"\[domaines\]", l.strip()) for l in lignes):
+        lignes += ["", "[domaines]  # domaine = { nature (projets, activites, hors_travail), projets }"]
+    debut, fin = _section(lignes, "domaines")
+    garde = [l for l in lignes[debut + 1:fin] if l.strip().startswith("#") or not l.strip()]
+    nouvelles = [f"{json.dumps(d['nom'], ensure_ascii=False)} = {_valeur({'nature': d['nature'], 'projets': d['projets']})}"
+                 for d in liste if d.get("nom", "").strip()]
+    lignes[debut + 1:fin] = [g for g in garde if g.strip().startswith("#")] + nouvelles + [""]
+    _ecrire(lignes)
+    return avant
 
 
 def _ecrire(lignes):
@@ -96,7 +132,7 @@ def supprimer(cle):
         m = re.match(r"\s*\[(\w+)\]", l)
         if m:
             section = m.group(1)
-        elif section in ("titres", "apps", "chemins") and _cle(l) is not None and tomllib.loads(l).get(_cle(l)) == cle:
+        elif section in ("forcer", "titres", "apps", "chemins") and _cle(l) is not None and tomllib.loads(l).get(_cle(l)) == cle:
             retire += 1
             continue
         elif section in ("noms", "projets", "reperes") and _cle(l) == cle:
@@ -107,10 +143,27 @@ def supprimer(cle):
     if famille(cle, "Projets") != "Projets":
         retire += 1
     if not retire:
-        FICHIER.write_text(avant)
-        raise ValueError(f"« {cle} » ne vient d'aucune règle : c'est un dossier de projets, il se range d'office." if LANGUE == "fr"
-                         else f"“{cle}” comes from no rule: it is a project folder, sorted automatically.")
+        # une catégorie qui vient d'un dossier : on exclut le dossier du classement d'office
+        exclure(cle)
     return avant
+
+
+def exclure(cle):
+    """Ajoute une catégorie de dossier à [dossiers] exclus : ses fichiers ne se rangent plus d'office."""
+    lignes = FICHIER.read_text().splitlines()
+    debut, fin = _section(lignes, "dossiers")
+    for i in range(debut + 1, fin):
+        if re.match(r"\s*exclus\s*=", lignes[i]):
+            liste = tomllib.loads(lignes[i])["exclus"]
+            if cle not in liste:
+                lignes[i] = "exclus = " + json.dumps(liste + [cle], ensure_ascii=False)
+            break
+    else:
+        fin_utile = fin
+        while fin_utile > debut + 1 and not lignes[fin_utile - 1].strip():
+            fin_utile -= 1
+        lignes.insert(fin_utile, "exclus = " + json.dumps([cle], ensure_ascii=False))
+    _ecrire(lignes)
 
 
 def restaurer(texte):

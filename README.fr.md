@@ -10,7 +10,7 @@ Je l'ai faite pour moi, comme graphiste indépendant. Je voulais savoir combien 
 
 ## Au quotidien
 
-Dans la barre des menus, tu as le total de travail de la journée. Un clic ouvre un panneau avec les sept derniers jours en barres colorées par groupe de projets (un clic sur une barre affiche ce jour-là), tes repères de la semaine, puis le temps passé sur chaque projet. Chaque ligne se déplie pour montrer ce qu'il y a dedans : des fichiers, des sites, des messages…
+Dans la barre des menus, tu as le total de travail de la journée. Un clic ouvre un panneau avec les sept derniers jours en barres colorées par domaine (un clic sur une barre affiche ce jour-là), tes repères de la semaine, puis le temps passé sur chaque projet, rangé par domaine. Chaque ligne se déplie pour montrer ce qu'il y a dedans : des fichiers, des sites, des messages…
 
 Le temps non classé est en orange, parce que c'est le seul endroit où il y a quelque chose à faire. Tu cliques sur une ligne, tu choisis jusqu'où va la règle (ce site ou tout le domaine, ce correspondant ou toute sa boîte, ou toute l'app), puis le projet. S'il n'existe pas encore, tu tapes son nom et il est créé. La règle vaut aussi pour tout l'historique, et une barre « Annuler » reste affichée quelques secondes si tu t'es trompé.
 
@@ -18,25 +18,35 @@ Le temps non classé est en orange, parce que c'est le seul endroit où il y a q
 
 Pour aller plus vite, Temps fait des suggestions à partir de ce que tu as déjà classé : un site, un titre ou un mot qui mène presque toujours au même projet. Un bouton les accepte toutes d'un coup (et une seule annulation les retire). Il n'y a pas d'IA là-dedans, juste du calcul sur ton Mac.
 
+Le non classé a sa propre carte, en tête, juste sous les repères de la semaine. Si tu as laissé filer quelques jours, « Classer une à une » ouvre la rubrique À classer de la fenêtre : la liste des lignes à gauche, de la plus longue à la plus courte, et l'écran Classer à droite, avec la suggestion déjà prête. Entrée pour l'accepter, ⌘→ pour passer.
+
 ## La fenêtre
 
-« Ouvrir Temps » ouvre une vraie fenêtre. La vue d'ensemble montre 7, 30 ou 90 jours, avec la part facturable de la période.
+« Ouvrir Temps » ouvre une vraie fenêtre, avec trois vues en haut et la période à droite : aujourd'hui, hier, une semaine, un mois, un trimestre, une année, ou les dates que tu choisis dans le calendrier. Les flèches reculent ou avancent d'une période entière.
+
+La vue d'ensemble montre le travail de la période jour par jour, la part facturable, tes repères de la semaine, puis une carte par domaine avec ses projets.
 
 ![Vue d'ensemble](captures/fr/3-vue-ensemble.png)
 
-Dans Projets, tu remplis directement le tableau : les heures vendues, le montant du devis, si c'est facturable, et un objectif d'heures par semaine si tu veux. La colonne Bilan te dit tout de suite s'il te reste de la marge ou si tu as dépassé.
+Sur un seul jour, l'histogramme laisse la place à un ruban coloré par projet, avec le détail au survol (un clic sur une barre de l'histogramme y mène aussi).
+
+Projets range tout en trois niveaux : le domaine (Studio, Enseignement, une asso…), le projet, et la mission quand un client revient pour un nouveau chantier. Un domaine a une nature (projets, activités comme le mail ou l'admin, hors travail) et une couleur, et chacun de ses projets en prend une nuance.
+
+À gauche, la liste. Tu y crées un domaine, un projet ou une mission, tu glisses un projet d'un domaine à l'autre, et tu renommes d'un double-clic. Le clic droit sert au reste : archiver un projet terminé (il sort des listes, son temps reste compté), fusionner deux projets, supprimer.
+
+À droite, la fiche du projet choisi. Tu y remplis les heures vendues, le montant du devis, si c'est facturable, et un objectif d'heures par semaine si tu veux. Le bilan te dit tout de suite s'il te reste de la marge ou si tu as dépassé. En dessous vient le détail de la période : les jours, les apps, les fichiers, les sites et les sessions.
 
 ![Projets](captures/fr/4-projets.png)
 
-Bilan reprend ça projet par projet, avec le taux horaire réel à côté de celui du devis. C'est souvent là qu'on comprend pourquoi un projet a été pénible.
+Une mission peut démarrer à une date : à partir de ce jour-là, le temps du projet va à elle. Et si un fichier ou un site s'est rangé au mauvais endroit, « Déplacer », au survol de sa ligne dans la fiche, l'envoie dans un autre projet.
 
-![Bilan](captures/fr/6-bilan.png)
+Pour ce qui se passe loin du Mac (une réunion, un rendez-vous, une heure de croquis), « + Plage » ajoute un créneau à la main, depuis le panneau ou depuis la fiche d'un projet : le jour, l'heure de début, l'heure de fin et une note.
 
-Organiser regroupe toutes les catégories en trois familles : projets, activités (mail, admin…) et hors travail. Tu glisses une catégorie sur une famille pour l'y ranger, ou sur une autre catégorie pour en faire un sous-projet. Double-clic pour renommer, clic sur une pastille pour changer la couleur (d'un groupe entier, ou d'un seul client dans les nuances de son groupe), clic droit pour le reste.
+Bilan reprend les devis projet par projet, avec le taux horaire réel à côté de celui du devis. C'est souvent là qu'on comprend pourquoi un projet a été pénible.
 
-![Organiser](captures/fr/5-organiser.png)
+![Bilan](captures/fr/5-bilan.png)
 
-Il y a aussi une liste du temps par app, avec la catégorie où chacune passe le plus de temps, et un export CSV par mois pour Numbers ou Excel.
+Les Réglages (⌘,) montrent si Temps a bien ses accès, avec un bouton vers chaque volet de Réglages Système. On y trouve aussi l'ouverture au démarrage, un rappel le vendredi après-midi s'il reste plus de 2 h non classées dans la semaine, l'export CSV d'un mois pour Numbers ou Excel, et la liste de toutes tes règles de classement, à corriger ou retirer sur place. Une option range les petits moments (moins de dix minutes dans la journée, que rien ne classe) avec le projet qui les entoure.
 
 ## Ce que Temps regarde
 
@@ -75,11 +85,16 @@ Au premier lancement, Temps crée `rules.toml` à côté du code, en copiant `ru
 | `[noms]`, `[alias]` | Le nom affiché d'une catégorie, et le lien quand tu as renommé un dossier. |
 | `[projets]` | Les fiches : heures vendues, montant HT, facturable. |
 | `[reperes]` | Les objectifs ou les plafonds de la semaine. |
-| `[couleurs]` | La couleur d'un groupe ou d'un sous-projet. |
+| `[domaines]` | Les domaines, dans leur ordre : leur nature et les projets qu'ils contiennent. |
+| `[missions]` | La date de départ d'une mission. |
+| `[couleurs]` | La couleur d'un domaine. |
+| `[archives]`, `[fusions]` | Les projets archivés, et ceux qui ont été fusionnés dans un autre. |
+| `[forcer]` | Un fichier ou un site déplacé à la main : cette règle passe avant toutes les autres. |
+| `[reglages]` | Les petits moments : en dessous de combien de minutes ils se rangent avec ce qui les entoure (0 pour couper). |
 
 ## Raccourcis
 
-Quand la fenêtre est ouverte, Temps a son propre menu : ⌘1 à ⌘6 pour passer d'une rubrique à l'autre, ⌃⌘S pour la barre latérale, ⌘E pour exporter le mois en cours.
+Quand la fenêtre est ouverte, Temps a son propre menu : ⌘1 à ⌘4 pour À classer, la vue d'ensemble, Projets et Bilan, ⌘E pour exporter le mois en cours.
 
 ## Mode démo
 
@@ -87,7 +102,7 @@ Pour essayer sans tes données (ou faire des captures comme celles-ci), quitte T
 
 ## Confidentialité
 
-Tout reste sur ton Mac. Les relevés sont dans `~/Library/Application Support/Temps/`, le serveur n'écoute que 127.0.0.1, et il n'y a ni compte, ni télémétrie, ni service extérieur.
+Tout reste sur ton Mac. Les relevés sont dans `~/Library/Application Support/Temps/`, le serveur n'écoute que 127.0.0.1 et ne répond qu'à Temps (une page web ouverte dans ton navigateur ne peut rien y lire), et il n'y a ni compte, ni télémétrie, ni service extérieur.
 
 ## Ce qui reste fragile
 

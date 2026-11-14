@@ -45,3 +45,9 @@ hors_travail = ["Perso", "Réseaux sociaux"]
 
 [ignorer]   # écran verrouillé, transitions système
 bundles = ["com.apple.loginwindow", "com.apple.SleepLockScreen", "com.apple.ScreenTimeUnlock", "com.apple.springboard", "com.apple.ScreenSaver.Engine"]
+
+[plages]    # une plage horaire range ce que rien d'autre ne range, sur le Mac
+# "2026-11-10 14:00-17:00" = "Studio / Dupont"
+
+[archives]  # projets terminés : masqués des listes, leur temps reste compté
+# "Studio / Dupont" = true
