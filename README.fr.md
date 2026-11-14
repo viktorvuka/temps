@@ -56,6 +56,14 @@ Après deux minutes sans toucher le clavier ni la souris, il retire toute la pé
 
 ## Installation
 
+### Le plus simple : l'app toute prête
+
+Télécharge `Temps-1.2-macOS-arm64.zip` dans les [Releases](https://github.com/viktorvuka/temps/releases/latest), ouvre-le et range `Temps.app` dans Applications. Elle contient tout ce qu'il lui faut, Python compris : rien d'autre à installer. Il faut un Mac avec une puce Apple (M1 ou plus récent) et macOS 14 ou plus.
+
+L'app n'est pas notarisée par Apple. Au premier lancement, macOS la bloque : va dans Réglages Système > Confidentialité et sécurité, descends jusqu'au message sur Temps et clique sur « Ouvrir quand même ». C'est à faire une seule fois. Ensuite, suis les trois étapes du premier lancement plus bas.
+
+### Compiler soi-même
+
 Il te faut macOS 14 ou plus récent, Python 3.11 ou plus récent (celui de [python.org](https://www.python.org/downloads/macos/) ou de Homebrew), et les outils en ligne de commande de Xcode (`xcode-select --install`).
 
 ```bash
@@ -65,7 +73,11 @@ cd temps
 open Temps.app
 ```
 
-`Temps.app` apparaît dans le dossier. C'est l'interface, et c'est elle qui fait tourner en arrière-plan l'enregistreur et un petit serveur local sur 127.0.0.1:8230. Au premier lancement :
+`Temps.app` apparaît dans le dossier. `./macos/paquet.sh` fabrique en plus l'app toute prête, avec son propre Python, dans `dist/`.
+
+### Au premier lancement
+
+Temps.app est l'interface, et c'est elle qui fait tourner en arrière-plan l'enregistreur et un petit serveur local sur 127.0.0.1:8230.
 
 1. Dans Réglages Système > Confidentialité et sécurité > Accès complet au disque, ajoute `Temps.app`. Sans ça, Temps ne peut pas lire le temps d'écran.
 2. macOS te demande ensuite l'Accessibilité et l'Automatisation pour plusieurs apps : accepte, c'est ce qui permet de lire la fenêtre et le fichier au premier plan.
@@ -75,7 +87,7 @@ Si tu compiles ta propre version, donne-lui ton identifiant : `TEMPS_ID=com.exem
 
 ## Réglages
 
-Au premier lancement, Temps crée `rules.toml` à côté du code, en copiant `rules.example.fr.toml`. L'app le modifie elle-même quand tu classes, renommes ou organises, mais tu peux aussi l'ouvrir et l'éditer à la main. La première chose à y mettre, ce sont tes dossiers de projets, dans `[dossiers]`.
+Au premier lancement, Temps crée `rules.toml` en copiant `rules.example.fr.toml` : dans `~/Library/Application Support/Temps/` pour l'app toute prête, à côté du code si tu l'as compilée. L'app le modifie elle-même quand tu classes, renommes ou organises, mais tu peux aussi l'ouvrir et l'éditer à la main. La première chose à y mettre, ce sont tes dossiers de projets, dans `[dossiers]`.
 
 | Section | À quoi elle sert |
 |---|---|
@@ -106,7 +118,7 @@ Tout reste sur ton Mac. Les relevés sont dans `~/Library/Application Support/Te
 
 ## Ce qui reste fragile
 
-Le temps d'écran vient de fichiers internes de macOS qui ne sont pas documentés : une mise à jour du système peut les changer, et il faudra alors adapter la lecture. Le moteur est en Python et l'interface en SwiftUI ; une version tout en Swift éviterait d'installer Python, mais elle n'existe pas encore.
+Le temps d'écran vient de fichiers internes de macOS qui ne sont pas documentés : une mise à jour du système peut les changer, et il faudra alors adapter la lecture. Le moteur est en Python et l'interface en SwiftUI : l'app toute prête embarque son propre Python, ce qui la rend plus lourde (une vingtaine de Mo à télécharger). Une version tout en Swift serait plus légère, mais elle n'existe pas encore. C'est aussi une première version : elle tourne tous les jours chez moi, et les retours sont bienvenus dans les Issues.
 
 ## Licence
 

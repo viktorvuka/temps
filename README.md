@@ -55,6 +55,14 @@ For what happens away from the Mac (a meeting, an appointment, an hour of sketch
 
 ## Installation
 
+### The easy way: the ready-made app
+
+Download `Temps-1.2-macOS-arm64.zip` from the [Releases](https://github.com/viktorvuka/temps/releases/latest), open it and move `Temps.app` to Applications. It carries everything it needs, Python included: nothing else to install. You need a Mac with Apple silicon (M1 or later) and macOS 14 or later.
+
+The app is not notarized by Apple. On first launch, macOS blocks it: open System Settings > Privacy & Security, scroll down to the message about Temps and click “Open Anyway”. You only do this once. Then follow the first-launch steps below.
+
+### Build it yourself
+
 You need macOS 14 or later, Python 3.11 or later (from [python.org](https://www.python.org/downloads/macos/) or Homebrew), and the Xcode command line tools (`xcode-select --install`).
 
 ```bash
@@ -64,7 +72,11 @@ cd temps
 open Temps.app
 ```
 
-This builds `Temps.app` in the folder. It is the interface, and it also runs the background work: the recorder and a small local server on 127.0.0.1:8230. On first launch:
+This builds `Temps.app` in the folder. `./macos/paquet.sh` also builds the ready-made app, with its own Python, in `dist/`.
+
+### On first launch
+
+Temps.app is the interface, and it also runs the background work: the recorder and a small local server on 127.0.0.1:8230.
 
 1. In **System Settings > Privacy & Security > Full Disk Access**, add `Temps.app`. Without it, Temps cannot read Screen Time.
 2. macOS then asks for **Accessibility** and **Automation** (System Events, Mail, Safari…): accept, this is how Temps reads the file and window in front.
@@ -74,7 +86,7 @@ For your own build, give it your own identifier: `TEMPS_ID=com.example.temps ./m
 
 ## Settings
 
-On first launch, Temps creates `rules.toml` next to the code, from `rules.example.toml`. The app writes to it when you sort, rename or organize, but you can also read and edit it by hand. Section names are in French (the app was first written in French); the example file explains each one.
+On first launch, Temps creates `rules.toml` from `rules.example.toml`: in `~/Library/Application Support/Temps/` for the ready-made app, next to the code if you built it yourself. The app writes to it when you sort, rename or organize, but you can also read and edit it by hand. Section names are in French (the app was first written in French); the example file explains each one.
 
 | Section | What it does |
 |---|---|
@@ -106,7 +118,8 @@ Nothing leaves your Mac. Records live in `~/Library/Application Support/Temps/`,
 ## Limits
 
 - Screen Time data comes from internal, undocumented macOS files: a system update can change them.
-- The engine is in Python, the interface in SwiftUI. An all-Swift version would remove the Python dependency; it does not exist yet.
+- The engine is in Python, the interface in SwiftUI: the ready-made app carries its own Python, which makes it heavier (about 20 MB to download). An all-Swift version would be lighter; it does not exist yet.
+- It is a first version. I use it every day, and feedback is welcome in the Issues.
 
 ## License
 

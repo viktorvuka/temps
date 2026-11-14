@@ -430,16 +430,22 @@ func duree(_ s: Double) -> String {
 
 // MARK: - Moteur (scripts Python)
 
-/// Temps lance lui-même l'enregistreur et le serveur Python, rangés à côté de Temps.app, et les
-/// relance s'ils s'arrêtent. Les accès macOS (disque, Accessibilité, Automatisation) sont ceux de
+/// Temps lance lui-même l'enregistreur et le serveur Python et les relance s'ils s'arrêtent. Dans l'app
+/// prête à télécharger (`macos/paquet.sh`), les scripts et un Python autonome sont rangés dans l'app elle-même
+/// (Resources/moteur, Resources/python) et les règles vont dans Application Support ; sinon, les scripts
+/// sont à côté de Temps.app et Python est celui du Mac. Les accès macOS (disque, Accessibilité, Automatisation) sont ceux de
 /// Temps.app : macOS les attribue à l'app qui a lancé les scripts.
 /// `open Temps.app --args --demo` lance seulement le serveur, sur les données de démonstration.
 final class Moteur {
-    static let dossier = Bundle.main.bundleURL.deletingLastPathComponent()
+    static let ressources = Bundle.main.resourceURL ?? Bundle.main.bundleURL
+    /// Vrai pour l'app prête à télécharger : son moteur et son Python sont dedans.
+    static let embarque = FileManager.default.fileExists(atPath: ressources.appendingPathComponent("moteur/server.py").path)
+    static let dossier = embarque ? ressources.appendingPathComponent("moteur") : Bundle.main.bundleURL.deletingLastPathComponent()
     static let donnees = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Temps")
-    /// Python 3.11 ou plus récent (tomllib) : Homebrew, python.org, puis celui du système.
-    static let python = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
+    /// Python 3.11 ou plus récent (tomllib) : celui de l'app s'il y en a un, puis Homebrew, python.org, celui du système.
+    static let python = [ressources.appendingPathComponent("python/bin/python3").path,
+                         "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
         .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/usr/bin/python3"
     let demo = CommandLine.arguments.contains("--demo")
     var scripts: [String] { demo ? ["server.py"] : ["recorder.py", "server.py"] }
@@ -473,6 +479,11 @@ final class Moteur {
         var env = ProcessInfo.processInfo.environment
         env["TEMPS_LANGUE"] = Locale.preferredLanguages.first.map { String($0.prefix(2)) } ?? "en"
         if demo { env["TEMPS_DEMO"] = "1" }
+        if Moteur.embarque {
+            // rien ne s'écrit dans l'app : les règles vivent avec les données (la démo garde les siennes à part)
+            if !demo { env["TEMPS_REGLES"] = Moteur.donnees.appendingPathComponent("rules.toml").path }
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+        }
         p.environment = env
         p.arguments = [Moteur.dossier.appendingPathComponent(script).path]
         p.currentDirectoryURL = Moteur.dossier

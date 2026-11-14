@@ -7,7 +7,8 @@ set -e
 # Identifiant de l'app ; à changer pour votre propre version : TEMPS_ID=com.example.temps ./build.sh
 ID=${TEMPS_ID:-io.github.temps}
 ICI=${0:A:h}
-CIBLE="$ICI/../Temps.app"
+# TEMPS_SORTIE : où poser l'app (par défaut à côté des scripts, qu'elle lance)
+CIBLE=${TEMPS_SORTIE:-"$ICI/../Temps.app"}
 # On compile à l'écart et on ne remplace Temps.app qu'à la fin : une erreur de compilation laisse l'app en place.
 APP="$(mktemp -d)/Temps.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/fr.lproj"
