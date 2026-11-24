@@ -30,6 +30,15 @@ struct Jour: Decodable, Identifiable {
 
 // MARK: - Couleurs par série (workstation)
 
+extension Color {
+    /// Liens et boutons texte : la couleur d'accent, éclaircie en mode sombre pour rester lisible sur le fond.
+    static let lien = Color(nsColor: NSColor(name: nil) { a in
+        let c = NSColor.controlAccentColor
+        guard a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua else { return c }
+        return c.blended(withFraction: 0.25, of: .white) ?? c
+    })
+}
+
 /// Ordre fixe des séries, de bas en haut dans les barres empilées. Palette validée (daltonisme,
 /// contraste) en clair et en sombre ; l'orange reste réservé au non classé.
 /// Teintes proposées (clair, sombre), validées pour le daltonisme et le contraste. L'orange est réservé au non classé.
@@ -535,6 +544,8 @@ final class Etat: ObservableObject {
     var enLot = false
     @Published var fiches: [Fiche] = []
     @Published var reperesTous: [Repere] = []
+    /// Récap de la semaine affichée (unité Semaine seulement).
+    @Published var recap: Recap?
     @Published var moisDispos: [String] = []
     @Published var histoLong: [Jour] = []
     @Published var famillesFenetre: [Famille] = []
@@ -606,11 +617,13 @@ final class Etat: ObservableObject {
         }
         moteur.demarrer()
         Task {
-            if UserDefaults.standard.object(forKey: "rappelVendredi") as? Bool ?? true { await autoriserNotifications() }
+            let d = UserDefaults.standard
+            if d.object(forKey: "rappelVendredi") as? Bool ?? true || d.object(forKey: "recapLundi") as? Bool ?? true { await autoriserNotifications() }
             try? await Task.sleep(for: .seconds(2))
             while true {
                 await charger()
                 await rappelVendredi()
+                await recapLundi()
                 try? await Task.sleep(for: .seconds(60))
             }
         }
@@ -1041,7 +1054,7 @@ struct Histogramme: View {
                     .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(choisi(j) && unJour ? Color.primary.opacity(0.5) : .clear, lineWidth: 1))
                     Text(Histogramme.initiales[jour])
                         .font(.system(size: 10, weight: aujourdhui || choisi(j) ? .semibold : .regular))
-                        .foregroundStyle(aujourdhui ? AnyShapeStyle(Color.accentColor) : (choisi(j) ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)))
+                        .foregroundStyle(aujourdhui ? AnyShapeStyle(Color.lien) : (choisi(j) ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)))
                 }
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
@@ -1091,9 +1104,9 @@ struct LigneDetail: View {
             }
             Spacer(minLength: 8)
             if survol && classable {
-                Text("Classer").font(.system(size: 11, weight: .medium)).foregroundStyle(Color.accentColor)
+                Text("Classer").font(.system(size: 11, weight: .medium)).foregroundStyle(Color.lien)
             } else if d.suggestion != nil {
-                Image(systemName: "sparkle").font(.system(size: 9)).foregroundStyle(Color.accentColor.opacity(0.8))
+                Image(systemName: "sparkle").font(.system(size: 9)).foregroundStyle(Color.lien.opacity(0.8))
                 Text(duree(d.secondes)).monospacedDigit().foregroundStyle(.tertiary)
             } else {
                 Text(duree(d.secondes)).monospacedDigit().foregroundStyle(.tertiary)
@@ -1220,7 +1233,7 @@ struct LignePoste: View {
                     Button(tout ? L("Réduire") : L("Tout afficher (%d)", poste.detail.count)) {
                         withAnimation(.easeOut(duration: 0.16)) { tout.toggle() }
                     }
-                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(Color.accentColor)
+                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(Color.lien)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 5).padding(.top, 2)
                 }
             }
@@ -1313,7 +1326,7 @@ struct LigneChoix: View {
             if survol { Image(systemName: "return").font(.system(size: 10)).foregroundStyle(.tertiary) }
         }
         .font(.system(size: 13))
-        .foregroundStyle(icone == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.accentColor))
+        .foregroundStyle(icone == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.lien))
         .padding(.vertical, 4).padding(.horizontal, 8)
         .padding(.leading, retrait ? 12 : 0)
         .background(RoundedRectangle(cornerRadius: 6).fill(
@@ -1756,7 +1769,7 @@ struct EcranOrganiser: View {
             Label(texte, systemImage: "plus").font(.system(size: 12, weight: .medium))
                 .padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+        .buttonStyle(.plain).foregroundStyle(Color.lien)
     }
 
     /// Dans la fenêtre : Domaine › Projet › Mission, en une seule liste construite au fil du défilement.
@@ -1977,7 +1990,7 @@ struct EcranOrganiser: View {
         Button { saisie = "mission:" + p.prefixe } label: {
             Label(L("Mission"), systemImage: "plus").font(.system(size: 11, weight: .medium))
         }
-        .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+        .buttonStyle(.plain).foregroundStyle(Color.lien)
         .padding(.horizontal, 8)
     }
 
@@ -2043,7 +2056,7 @@ struct Fenetre: View {
                     Text(r.message).lineLimit(1)
                     Spacer()
                     Button("Annuler") { Task { await etat.annuler() } }
-                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.accentColor)
+                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.lien)
                 }
                 .font(.system(size: 12))
                 .padding(.horizontal, 12).padding(.vertical, 9)

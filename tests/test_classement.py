@@ -139,6 +139,15 @@ class PlagesSaisies(unittest.TestCase):
         self.assertAlmostEqual(c.tot["Studio / Dupont"], 600)
         self.assertAlmostEqual(c.tot["Studio / Martin"], 3000)    # pas de double compte
 
+    def test_la_plage_forcee_reprend_tout_sans_ajouter(self):
+        b = r.Brut()
+        t0 = 1_700_000_400
+        b.ajouter(t0, "Mac", "com.app", 600, titre="exemple.fr")   # rangé dans Studio / Dupont par son titre
+        saisie = [{"id": "a", "debut": t0, "fin": t0 + 3600, "cle": "Studio / Martin", "note": "", "force": True}]
+        c = b.classer((), saisie)
+        self.assertAlmostEqual(c.tot["Studio / Martin"], 600)     # seulement ce que le Mac a relevé
+        self.assertNotIn("Studio / Dupont", {k for k, v in c.tot.items() if v})
+
 
 class Domaines(unittest.TestCase):
     def test_la_nature_du_domaine_donne_la_famille(self):
@@ -264,6 +273,37 @@ class Moteur(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k != "TEMPS_REGLES"} | {"TEMPS_DEMO": "1", "HOME": str(DOSSIER)}
         sortie = subprocess.run([sys.executable, "-c", code], cwd=ICI, env=env, capture_output=True, text=True)
         self.assertEqual(sortie.stdout.strip(), "True", sortie.stderr)
+
+    def test_recap_de_la_semaine(self):
+        lundi = time.mktime(time.strptime("2026-11-16", "%Y-%m-%d"))
+        J = lambda n: r.minuit(lundi + n * r.JOUR + 3600)
+
+        def jour(**secondes):
+            c = r.Collecte()
+            for cle, s in secondes.items():
+                c.tot[cle.replace("_", " / ")] += s
+            return c
+        tous = {J(-7): jour(Studio_Dupont=3600), J(-6): jour(Studio_Dupont=3600), J(-5): jour(Studio_Dupont=7200),
+                J(0): jour(Studio_Dupont=7200), J(1): jour(Studio_Dupont=3 * 3600, Perso=9000), J(2): jour(Studio_Dupont=1800)}
+        tous[J(1)].tot[r.NON_CLASSE] = 1200
+        fiches = r.REGLES.setdefault("projets", {})
+        fiches["Studio / Dupont"] = {"montant": 1500, "vendu": 10}
+        try:
+            # semaine en cours, mercredi : comparée au lundi-mercredi d'avant
+            s = r.semaine(tous, lundi, maintenant=J(2) + 3600)
+            self.assertEqual((s["jours"], s["complete"]), (3, False))
+            self.assertEqual(s["travail"], 7200 + 3 * 3600 + 1800 + 1200)
+            self.assertEqual(s["precedent"], 4 * 3600)
+            self.assertEqual(s["non_classe"], 1200)
+            self.assertEqual(s["charge"]["jour"], J(1))
+            self.assertEqual([t["nom"] for t in s["taux"]], ["Studio / Dupont"])
+            self.assertEqual(s["taux"][0]["devis"], 150)
+            self.assertEqual(s["taux"][0]["taux"], round(1500 / ((4 * 3600 + 7200 + 3 * 3600 + 1800) / 3600)))
+            # semaine passée : complète, la précédente entière en regard
+            s = r.semaine(tous, J(-7), maintenant=J(2))
+            self.assertEqual((s["jours"], s["complete"], s["travail"], s["precedent"]), (7, True, 4 * 3600, 0))
+        finally:
+            fiches.pop("Studio / Dupont")
 
     def test_le_serveur_ne_repond_qu_a_temps(self):
         import server

@@ -26,7 +26,7 @@ I built it for my own use as an independent graphic designer: I wanted to know h
 
 ![Overview](captures/en/3-vue-ensemble.png)
 
-On a single day, the chart gives way to a ribbon colored by project, with details on hover (clicking a bar of the chart gets you there too).
+On a single day, the chart gives way to a ribbon colored by project, with details on hover (clicking a bar of the chart gets you there too). Right-click a piece of the ribbon to file it under another project.
 
 **Projects** sorts everything on three levels: the domain (Studio, Teaching, a non-profit…), the project, and the mission when a client comes back for a new job. A domain has a nature (projects, activities such as mail or admin, off work) and a color, and each of its projects takes a shade of it.
 
@@ -44,7 +44,7 @@ For what happens away from the Mac (a meeting, an appointment, an hour of sketch
 
 ![Review](captures/en/5-bilan.png)
 
-**Settings** (⌘,) show whether Temps has its permissions, with a button to each pane of System Settings. They also hold launch at login, a Friday afternoon reminder when more than 2 hours of the week are unsorted, the monthly CSV export for Numbers or Excel, and the list of all your sorting rules, to fix or remove in place. One option files short moments (under ten minutes in the day, with no rule to sort them) with the project around them.
+**Settings** (⌘,) show whether Temps has its permissions, with a button to each pane of System Settings. They also hold launch at login, a Friday afternoon reminder when more than 2 hours of the week are unsorted, last week's recap on Monday morning, the monthly CSV export for Numbers or Excel, and the list of all your sorting rules, to fix or remove in place. One option files short moments (two minutes or less in the day, with no rule to sort them) with the project around them, when it is there both before and after.
 
 ## How Temps counts
 

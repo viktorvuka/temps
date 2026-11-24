@@ -28,7 +28,7 @@ La vue d'ensemble montre le travail de la période jour par jour, la part factur
 
 ![Vue d'ensemble](captures/fr/3-vue-ensemble.png)
 
-Sur un seul jour, l'histogramme laisse la place à un ruban coloré par projet, avec le détail au survol (un clic sur une barre de l'histogramme y mène aussi).
+Sur un seul jour, l'histogramme laisse la place à un ruban coloré par projet, avec le détail au survol (un clic sur une barre de l'histogramme y mène aussi). Un clic droit sur un morceau du ruban le range dans un autre projet.
 
 Projets range tout en trois niveaux : le domaine (Studio, Enseignement, une asso…), le projet, et la mission quand un client revient pour un nouveau chantier. Un domaine a une nature (projets, activités comme le mail ou l'admin, hors travail) et une couleur, et chacun de ses projets en prend une nuance.
 
@@ -46,7 +46,7 @@ Bilan reprend les devis projet par projet, avec le taux horaire réel à côté 
 
 ![Bilan](captures/fr/5-bilan.png)
 
-Les Réglages (⌘,) montrent si Temps a bien ses accès, avec un bouton vers chaque volet de Réglages Système. On y trouve aussi l'ouverture au démarrage, un rappel le vendredi après-midi s'il reste plus de 2 h non classées dans la semaine, l'export CSV d'un mois pour Numbers ou Excel, et la liste de toutes tes règles de classement, à corriger ou retirer sur place. Une option range les petits moments (moins de dix minutes dans la journée, que rien ne classe) avec le projet qui les entoure.
+Les Réglages (⌘,) montrent si Temps a bien ses accès, avec un bouton vers chaque volet de Réglages Système. On y trouve aussi l'ouverture au démarrage, un rappel le vendredi après-midi s'il reste plus de 2 h non classées dans la semaine, le récap de la semaine passée le lundi matin, l'export CSV d'un mois pour Numbers ou Excel, et la liste de toutes tes règles de classement, à corriger ou retirer sur place. Une option range les petits moments (deux minutes au plus dans la journée, que rien ne classe) avec le projet qui les entoure, quand il est là avant et après.
 
 ## Ce que Temps regarde
 

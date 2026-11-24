@@ -110,6 +110,13 @@ class Gestion(SimpleHTTPRequestHandler):
                 return self.json({"erreur": rapport.tr("Accès complet au disque refusé.", "Full Disk Access denied.")})
         if url.path == "/projet":
             return self.projet(parse_qs(url.query))
+        if url.path == "/semaine":
+            try:
+                tous = rapport.historique()
+            except PermissionError:
+                return self.json({"erreur": rapport.tr("Accès complet au disque refusé.", "Full Disk Access denied.")})
+            q = parse_qs(url.query)
+            return self.json(rapport.semaine(tous, float(q["debut"][0]) if "debut" in q else rapport.debut_semaine()))
         if url.path == "/manuel":
             q = parse_qs(url.query)
             cles = set(q.get("cle", []))
@@ -246,7 +253,7 @@ class Gestion(SimpleHTTPRequestHandler):
             elif self.path == "/supprimer":
                 reponse = {"avant": regles.supprimer(d["cle"])}
             elif self.path == "/manuel":
-                m = rapport.ajouter_manuel(d["debut"], d["fin"], d["cle"], d.get("note", ""))
+                m = rapport.ajouter_manuel(d["debut"], d["fin"], d["cle"], d.get("note", ""), bool(d.get("force")))
                 reponse = {"avant": m["id"], "plage": m}
             elif self.path == "/manuel/retirer":
                 reponse = {"avant": rapport.retirer_manuel(d["id"])}

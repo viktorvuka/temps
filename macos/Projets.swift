@@ -270,7 +270,7 @@ struct FicheProjet: View {
                         Button { Task { await etat.dater(c, Date()) } } label: {
                             Label(L("Date de départ"), systemImage: "plus").font(.system(size: 12, weight: .medium))
                         }
-                        .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                        .buttonStyle(.plain).foregroundStyle(Color.lien)
                     }
                 }
             }
@@ -371,7 +371,7 @@ struct LigneBarre: View {
                         Button { choix = true } label: {
                             Label(L("Déplacer"), systemImage: "arrow.turn.up.right").font(.system(size: 11, weight: .medium))
                         }
-                        .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                        .buttonStyle(.plain).foregroundStyle(Color.lien)
                         .popover(isPresented: $choix, arrowEdge: .bottom) {
                             ChoixCategorie { cle in
                                 choix = false
@@ -669,6 +669,7 @@ struct PlageSaisie: Decodable, Identifiable, Hashable {
     let cle: String
     let note: String
     let nom: String?
+    var force: Bool? = nil
 }
 
 extension Etat {
@@ -679,16 +680,16 @@ extension Etat {
         plagesSaisies = r["plages"] ?? []
     }
 
-    func ajouterPlage(debut: Date, fin: Date, cle: String, note: String) async {
+    func ajouterPlage(debut: Date, fin: Date, cle: String, note: String, force: Bool = false, message: String? = nil) async {
         let nom = categories.first { $0.cle == cle }?.nom ?? cle
-        await modifier("manuel", ["debut": debut.timeIntervalSince1970, "fin": fin.timeIntervalSince1970, "cle": cle, "note": note],
-                       message: L("Plage ajoutée à %@", nom)) { r in ("manuel/retirer", ["id": r.avant as? String ?? ""]) }
+        await modifier("manuel", ["debut": debut.timeIntervalSince1970, "fin": fin.timeIntervalSince1970, "cle": cle, "note": note, "force": force],
+                       message: message ?? L("Plage ajoutée à %@", nom)) { r in ("manuel/retirer", ["id": r.avant as? String ?? ""]) }
         await chargerSaisies()
     }
 
     func retirerPlage(_ p: PlageSaisie) async {
         await modifier("manuel/retirer", ["id": p.id], message: L("Plage retirée")) { _ in
-            ("manuel", ["debut": p.debut, "fin": p.fin, "cle": p.cle, "note": p.note])
+            ("manuel", ["debut": p.debut, "fin": p.fin, "cle": p.cle, "note": p.note, "force": p.force == true])
         }
         await chargerSaisies()
     }
@@ -735,7 +736,7 @@ struct FormulairePlage: View {
                     HStack {
                         Text(etat.categories.first { $0.cle == p }?.nom ?? p).font(.system(size: 13, weight: .semibold))
                         Spacer()
-                        Button(L("Changer")) { choisi = nil }.buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                        Button(L("Changer")) { choisi = nil }.buttonStyle(.plain).foregroundStyle(Color.lien)
                     }
                 } else {
                     TextField(L("Chercher un projet"), text: $recherche).textFieldStyle(.roundedBorder)
@@ -818,7 +819,7 @@ struct SectionPlages: View {
                 Button { ouvert = true } label: {
                     Label(L("Nouvelle plage"), systemImage: "plus").font(.system(size: 12, weight: .medium))
                 }
-                .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                .buttonStyle(.plain).foregroundStyle(Color.lien)
                 .padding(.top, liste.isEmpty ? 0 : 4)
                 .popover(isPresented: $ouvert, arrowEdge: .bottom) {
                     FormulairePlage(cle: cleDefaut) { ouvert = false }.environmentObject(etat)

@@ -31,6 +31,43 @@ struct ReponseFenetre: Decodable {
     let erreur: String?
 }
 
+/// GET /semaine?debut=ts : la semaine qui commence ce lundi, comparée à la précédente à jour égal.
+struct Recap: Decodable {
+    struct Charge: Decodable { let jour: Double; let secondes: Double }
+    struct Taux: Decodable, Identifiable {
+        let cle: String
+        let nom: String
+        let semaine: Double
+        let taux: Double?
+        let devis: Double?
+        var id: String { cle }
+    }
+    let debut: Double
+    let jours: Int
+    let complete: Bool
+    let travail: Double
+    let precedent: Double
+    let facturable: Double
+    let facturable_precedent: Double
+    let non_classe: Double
+    let charge: Charge?
+    let reperes: [Repere]
+    let taux: [Taux]
+}
+
+/// « +3 h 20 », « −45 min », « = » : l'écart entre deux durées.
+func ecart(_ a: Double, _ b: Double) -> String {
+    let d = a - b
+    return abs(d) < 60 ? "=" : (d > 0 ? "+" : "−") + duree(abs(d))
+}
+
+extension Etat {
+    func lireRecap(_ lundi: Date) async -> Recap? {
+        guard let (d, _) = try? await URLSession.shared.data(from: URL(string: "http://127.0.0.1:8230/semaine?debut=\(lundi.timeIntervalSince1970)")!) else { return nil }
+        return try? JSONDecoder().decode(Recap.self, from: d)
+    }
+}
+
 enum Rubrique: String, CaseIterable, Identifiable {
     case aClasser = "À classer", ensemble = "Vue d'ensemble", projets = "Projets", bilan = "Bilan"
     var id: String { rawValue }
@@ -364,8 +401,36 @@ struct RubanJour: View {
             .onContinuousHover { phase in
                 if case .active(let pt) = phase { survol = a + Double(pt.x / w) * (b - a) } else { survol = nil }
             }
+            .contextMenu { menuClasser(segs) }
         }
         .frame(height: 54)
+    }
+
+    /// Clic droit sur un morceau du ruban : le ranger dans un projet ou une activité, quel qu'il soit
+    /// (une plage saisie forcée, qui reprend tout ce que le Mac a relevé sur ce créneau).
+    @ViewBuilder func menuClasser(_ segs: [Segment]) -> some View {
+        if let t = survol, let d = segs.first(where: { $0.debut <= t && t < $0.fin }) {
+            let choix = etat.categories.filter { !$0.archivee && ($0.famille == projets || $0.famille == activites) && $0.missions != true && $0.cle != d.tranche.cle }
+            let groupes = Dictionary(grouping: choix) { $0.groupe ?? $0.nom }
+            Text("\(heureMinute(d.debut))–\(heureMinute(d.fin)) · \(duree(d.secondes))")
+            Menu(L("Classer dans")) {
+                ForEach(groupes.keys.sorted { $0.lowercased() < $1.lowercased() }, id: \.self) { g in
+                    let cats = groupes[g]!.sorted { $0.nom.lowercased() < $1.nom.lowercased() }
+                    if cats.count == 1 && cats[0].groupe == nil {
+                        Button(cats[0].nom) { classer(d, dans: cats[0]) }
+                    } else {
+                        Menu(g) { ForEach(cats) { c in Button(c.feuille) { classer(d, dans: c) } } }
+                    }
+                }
+            }
+        }
+    }
+
+    func classer(_ d: Segment, dans c: Categorie) {
+        Task {
+            await etat.ajouterPlage(debut: Date(timeIntervalSince1970: d.debut), fin: Date(timeIntervalSince1970: d.fin),
+                                    cle: c.cle, note: "", force: true, message: L("Rangé dans %@", c.nom))
+        }
     }
 }
 
@@ -596,6 +661,7 @@ extension Etat {
             secondesFenetre = Dictionary((a.familles ?? []).flatMap(\.postes).map { ($0.cle, $0.secondes) }, uniquingKeysWith: +)
             if projetChoisi != nil { Task { await chargerProjet() } }
             travailFenetre = a.travail ?? 0
+            recap = unite == .semaine ? await lireRecap(bornesUnite.0) : nil
         } catch {
             if n == chargementFenetre { erreurFenetre = L("Serveur injoignable sur le port 8230.") }
         }
@@ -769,6 +835,43 @@ struct HistogrammeLong: View {
     }
 }
 
+/// Le récap de la semaine affichée : l'écart avec la semaine d'avant, le jour le plus chargé,
+/// les repères de cette semaine-là et le taux réel des projets facturables touchés.
+struct CarteRecap: View {
+    let r: Recap
+
+    func ligne(_ titre: String, _ valeur: String, _ note: String? = nil, alerte: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Text(L(titre)).lineLimit(1)
+            Spacer()
+            Text(valeur).monospacedDigit().foregroundStyle(alerte ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+            if let n = note { Text(n).monospacedDigit().foregroundStyle(.tertiary) }
+        }
+        .font(.system(size: 13))
+        .padding(.vertical, 4).padding(.horizontal, 8)
+    }
+
+    var body: some View {
+        Carte {
+            Etiquette(texte: "Récap de la semaine")
+            ligne(r.complete ? "Semaine d'avant" : "Semaine d'avant, à jour égal", duree(r.precedent), ecart(r.travail, r.precedent))
+            ligne("Facturable", duree(r.facturable), ecart(r.facturable, r.facturable_precedent))
+            if let c = r.charge {
+                let jour = Date(timeIntervalSince1970: c.jour).formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
+                ligne("Jour le plus chargé", jour, duree(c.secondes))
+            }
+            ForEach(r.reperes) { LigneRepere(r: $0) }
+            if !r.taux.isEmpty {
+                Etiquette(texte: "Taux réel").padding(.top, 6)
+                ForEach(r.taux) { t in
+                    ligne(t.nom, t.taux.map { "\(Int($0)) €/h" } ?? "–",
+                          t.devis.map { L("devis %d €/h", Int($0)) }, alerte: (t.taux ?? 0) < (t.devis ?? 0))
+                }
+            }
+        }
+    }
+}
+
 struct VueEnsemble: View {
     @EnvironmentObject var etat: Etat
 
@@ -795,7 +898,9 @@ struct VueEnsemble: View {
                         etat.allerA(Date(timeIntervalSince1970: j), unite: .jour)
                     }
                 }
-                if !etat.reperesTous.isEmpty {
+                if etat.unite == .semaine, let r = etat.recap {
+                    CarteRecap(r: r)
+                } else if !etat.reperesTous.isEmpty {
                     Carte {
                         Etiquette(texte: "Cette semaine")
                         ForEach(etat.reperesTous) { LigneRepere(r: $0) }
@@ -936,7 +1041,8 @@ struct FenetrePrincipale: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VerreDeFenetre().ignoresSafeArea())
+        // un voile de la couleur de fenêtre sur le verre : une fenêtre claire derrière ne délave plus le texte
+        .background(ZStack { VerreDeFenetre(); Color(nsColor: .windowBackgroundColor).opacity(0.6) }.ignoresSafeArea())
         .navigationTitle("Temps")
         .modifier(SansTitre())
         .toolbar {
@@ -990,7 +1096,7 @@ struct FenetrePrincipale: View {
                     Text(r.message).lineLimit(1)
                     Spacer()
                     Button("Annuler") { Task { await etat.annuler() } }
-                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.accentColor)
+                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.lien)
                 }
                 .font(.system(size: 12))
                 .padding(.horizontal, 14).padding(.vertical, 10)

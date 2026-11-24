@@ -69,7 +69,7 @@ struct Reglages: View {
                     Text(r.message).lineLimit(1)
                     Spacer()
                     Button("Annuler") { Task { await etat.annuler() } }
-                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.accentColor)
+                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.lien)
                 }
                 .font(.system(size: 12))
                 .padding(.horizontal, 14).padding(.vertical, 10)
@@ -91,6 +91,7 @@ struct ReglagesGeneral: View {
     @State private var accessibilite = AXIsProcessTrusted()
     @State private var auto: [String: Bool] = [:]
     @AppStorage("rappelVendredi") private var rappel = true
+    @AppStorage("recapLundi") private var recap = true
 
     var body: some View {
         Form {
@@ -103,10 +104,12 @@ struct ReglagesGeneral: View {
                 Toggle("Ouvrir au démarrage", isOn: Binding(get: { etat.auDemarrage }, set: { etat.basculerDemarrage($0) }))
                 Toggle("Ranger les petits moments avec ce qui les entoure", isOn: Binding(get: { etat.lissage }, set: { oui in
                     etat.lissage = oui
-                    Task { await etat.poser("reglages", "lissage", oui ? 10 : 0, message: L(oui ? "Petits moments rangés" : "Petits moments laissés à classer")) }
+                    Task { await etat.poser("reglages", "lissage", oui ? 2 : 0, message: L(oui ? "Petits moments rangés" : "Petits moments laissés à classer")) }
                 }))
                 Toggle("Rappel du non classé le vendredi", isOn: $rappel)
                     .onChange(of: rappel) { _, oui in if oui { Task { await etat.autoriserNotifications() } } }
+                Toggle("Récap de la semaine le lundi", isOn: $recap)
+                    .onChange(of: recap) { _, oui in if oui { Task { await etat.autoriserNotifications() } } }
                 HStack {
                     Text("Dossier des données")
                     Spacer()
@@ -158,8 +161,10 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse) async {
+        let lundi = r.notification.request.identifier.hasPrefix("lundi-")
         await MainActor.run {
-            etat?.rubriqueDemandee = Rubrique.aClasser.rawValue
+            if lundi { etat?.raccourci(.semaine, recul: 1) }
+            etat?.rubriqueDemandee = (lundi ? Rubrique.ensemble : Rubrique.aClasser).rawValue
             etat?.ouvrirFenetre?()
         }
     }
@@ -195,6 +200,26 @@ extension Etat {
         contenu.title = "Temps"
         contenu.body = L("%@ non classées cette semaine", duree(nc))
         try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "vendredi-\(semaine)", content: contenu, trigger: nil))
+    }
+}
+
+extension Etat {
+    /// Le lundi à partir de 8 h, une fois par semaine : le récap de la semaine passée ; un clic l'ouvre.
+    func recapLundi() async {
+        let d = UserDefaults.standard
+        guard d.object(forKey: "recapLundi") as? Bool ?? true else { return }
+        let cal = Calendar.current, maintenant = Date()
+        guard cal.component(.weekday, from: maintenant) == 2, cal.component(.hour, from: maintenant) >= 8,
+              let cette = cal.dateInterval(of: .weekOfYear, for: maintenant)?.start,
+              let lundi = cal.date(byAdding: .weekOfYear, value: -1, to: cette) else { return }
+        let semaine = "\(cal.component(.yearForWeekOfYear, from: maintenant))-\(cal.component(.weekOfYear, from: maintenant))"
+        guard d.string(forKey: "recapEnvoye") != semaine, let r = await lireRecap(lundi) else { return }
+        d.set(semaine, forKey: "recapEnvoye")
+        guard r.travail >= 3600 else { return }
+        let contenu = UNMutableNotificationContent()
+        contenu.title = L("Semaine dernière")
+        contenu.body = L("%@ de travail (%@), dont %@ facturables", duree(r.travail), ecart(r.travail, r.precedent), duree(r.facturable))
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "lundi-\(semaine)", content: contenu, trigger: nil))
     }
 }
 
@@ -277,7 +302,7 @@ struct LigneRegle: View {
                 Button { choix = true } label: {
                     Label(L("Déplacer"), systemImage: "arrow.turn.up.right").labelStyle(.titleAndIcon)
                 }
-                .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                .buttonStyle(.plain).foregroundStyle(Color.lien)
                 .popover(isPresented: $choix, arrowEdge: .bottom) {
                     ChoixCategorie { cle in
                         choix = false

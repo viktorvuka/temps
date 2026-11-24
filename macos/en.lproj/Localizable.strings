@@ -266,3 +266,12 @@
 "Sans mission" = "No mission";
 "« %@ » démarre le %@" = "“%@” starts on %@";
 "« %@ » n'a plus de date de départ" = "“%@” no longer has a start date";
+"Récap de la semaine" = "Week recap";
+"Semaine d'avant" = "Week before";
+"Semaine d'avant, à jour égal" = "Week before, same days";
+"Jour le plus chargé" = "Busiest day";
+"Taux réel" = "Actual rate";
+"devis %d €/h" = "quoted €%d/h";
+"%@ de travail (%@), dont %@ facturables" = "%@ of work (%@), %@ billable";
+"Récap de la semaine le lundi" = "Week recap on Monday";
+"Classer dans" = "File under";

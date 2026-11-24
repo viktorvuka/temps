@@ -348,6 +348,8 @@ class Collecte:
 TRANCHE = 300  # secondes : finesse des plages horaires
 
 # Plages saisies à la main (réunion, rendez-vous, croquis) : [{id, debut, fin, cle, note}].
+# `force` (posée depuis la frise) : tout ce que le Mac a relevé dans la plage passe dans son projet, même ce qui
+# était rangé ailleurs, et la plage n'ajoute aucun temps hors du Mac.
 MANUEL = DONNEES / "manuel.json"
 
 
@@ -358,11 +360,13 @@ def manuels():
         return []
 
 
-def ajouter_manuel(debut, fin, cle, note=""):
+def ajouter_manuel(debut, fin, cle, note="", force=False):
     if not cle or fin <= debut:
         raise ValueError(tr("une plage demande un projet, et une fin après le début.", "a time block needs a project and an end after its start."))
     l = manuels()
     m = {"id": f"{int(time.time() * 1000):x}", "debut": float(debut), "fin": float(fin), "cle": cle, "note": note.strip()}
+    if force:
+        m["force"] = True
     MANUEL.parent.mkdir(parents=True, exist_ok=True)
     MANUEL.write_text(json.dumps(l + [m], ensure_ascii=False, indent=1))
     return m
@@ -384,6 +388,26 @@ def manuel_a(t, liste):
     return next((m for m in reversed(liste) if m["debut"] <= t < m["fin"]), None)
 
 
+def seuil_lissage():
+    """Durée maximale (s) d'une ligne non classée que le lissage peut ranger : 2 min, 0 si le lissage est coupé."""
+    return min(float(REGLES.get("reglages", {}).get("lissage", 10)), 2) * 60
+
+
+def lisser(voisins, t):
+    """Le projet d'un petit moment à l'instant t : celui qui domine dans le quart d'heure autour, à condition
+    qu'il soit là avant et après (une miette prise entre deux morceaux du même projet). Sinon Non classé."""
+    autour = defaultdict(float)
+    for k in range(-3, 4):
+        for c, x in voisins.get(t + k * TRANCHE, {}).items():
+            autour[c] += x
+    if not autour:
+        return NON_CLASSE
+    cle = max(autour.items(), key=lambda kv: kv[1])[0]
+    avant = any(cle in voisins.get(t - k * TRANCHE, {}) for k in range(4))
+    apres = any(cle in voisins.get(t + k * TRANCHE, {}) for k in range(4))
+    return cle if avant and apres else NON_CLASSE
+
+
 class Brut:
     """Les relevés d'un jour avant classement : {(appareil, app, titre, doc, secours): [secondes, {tranche: secondes}]}.
     C'est ce qui va au cache : une règle posée ne fait que reclasser, sans relire les sources."""
@@ -401,13 +425,13 @@ class Brut:
             l[1][k] = l[1].get(k, 0.0) + secondes
 
     def classer(self, plages=(), saisies=()):
-        """Classe le jour. Les petits moments du Mac que rien ne range (moins de `lissage` minutes dans la journée)
-        prennent la catégorie de travail qui domine dans le quart d'heure autour d'eux.
+        """Classe le jour. Les petits moments du Mac que rien ne range (2 min au plus dans la journée) prennent
+        la catégorie de travail qui les entoure, si elle est là avant et après (`lisser`).
         Une plage saisie à la main l'emporte : ce que le Mac a relevé pendant ce temps passe dans son projet
         (le détail reste), sauf ce qui est déjà rangé dans un autre projet, qui reste tel quel ;
         le reste de la plage compte comme temps « Manuel »."""
         c = Collecte()
-        seuil = float(REGLES.get("reglages", {}).get("lissage", 10)) * 60
+        seuil = seuil_lissage()
         voisins = defaultdict(lambda: defaultdict(float))   # {tranche: {clé: secondes}}
         petits = []
         couvert = defaultdict(float)   # {id de plage: secondes du Mac dedans}
@@ -418,7 +442,7 @@ class Brut:
                 autre_projet = cle0 != NON_CLASSE and famille(cle0) == PROJETS
                 for t, v in tr.items():
                     m = manuel_a(t, saisies)
-                    if m and autre_projet and fusion_de(cle0) != m["cle"]:
+                    if m and autre_projet and fusion_de(cle0) != m["cle"] and not m.get("force"):
                         couvert[m["id"]] += v   # déjà rangé dans un autre projet : reste tel quel
                         reste[t] = v
                     elif m:
@@ -443,14 +467,12 @@ class Brut:
         for (ap, b, titre, doc, sec_), sec, tr in petits:
             ctx = contexte(b, titre, chemin_fichier(doc))
             for t, v in tr.items():
-                autour = defaultdict(float)
-                for k in range(-3, 4):
-                    for cle, x in voisins.get(t + k * TRANCHE, {}).items():
-                        autour[cle] += x
-                cle = max(autour.items(), key=lambda kv: kv[1])[0] if autour else NON_CLASSE
+                cle = next((c for a, z, c in plages if a <= t < z), None) or lisser(voisins, t)
                 c.tot[cle] += v
                 c.detail[cle][(ap, b, ctx)] += v
         for m in saisies:
+            if m.get("force"):
+                continue
             hors_mac = (m["fin"] - m["debut"]) - couvert.get(m["id"], 0)
             if hors_mac > 0.5:
                 c.tot[m["cle"]] += hors_mac
@@ -487,22 +509,37 @@ def frise(j):
     pl = [x for x in plages() if x[0] < j + JOUR + 3600 and x[1] > j]
     tranches = defaultdict(lambda: defaultdict(float))
     ctx = defaultdict(lambda: defaultdict(float))
+    # même lissage que Brut.classer
+    seuil = seuil_lissage()
+    voisins = defaultdict(lambda: defaultdict(float))
     for (ap, bundle, titre, doc, sec_), (_, tr) in b.lignes.items():
+        if seuil and ap == "Mac" and bundle not in IGNORER:
+            c = cle_simple(bundle, titre, doc, sec_)
+            if c != NON_CLASSE and famille(c) != HORS:
+                for t, v in tr.items():
+                    voisins[t][c] += v
+
+    for (ap, bundle, titre, doc, sec_), (total, tr) in b.lignes.items():
         if ap != "Mac" or bundle in IGNORER:
             continue
+        petit = seuil and total <= seuil
         d = "" if bundle == CLAUDE and any(doc.rstrip("/") == str(r) for r in RACINES) else doc
         cle0 = classer_memo(bundle, titre, d)
         x = contexte(bundle, titre, chemin_fichier(d)) or nom_app(bundle)
         for t, sec in tr.items():
             cle = cle0
             m = manuel_a(t, saisies)
-            if m and not (cle0 != NON_CLASSE and famille(cle0) == PROJETS):
+            if m and (m.get("force") or not (cle0 != NON_CLASSE and famille(cle0) == PROJETS)):
                 cle = m["cle"]
             elif cle == NON_CLASSE:
                 cle = next((c for a, z, c in pl if a <= t < z), None) or resoudre_secours(sec_) or NON_CLASSE
+                if cle == NON_CLASSE and petit:
+                    cle = lisser(voisins, t)
             tranches[t][cle] += sec
             ctx[t][x] += sec
     for m in saisies:
+        if m.get("force"):
+            continue
         t = int(m["debut"] // TRANCHE * TRANCHE)
         while t < m["fin"]:
             if t not in tranches:
@@ -895,13 +932,13 @@ def debut_semaine():
     return minuit(minuit(time.time()) - t.tm_wday * JOUR + 3600)
 
 
-def reperes(jours):
-    """Repères de la semaine en cours (depuis lundi).
+def reperes(jours, debut=None, fin=float("inf")):
+    """Repères de la semaine en cours (depuis lundi), ou de la semaine qui commence à `debut`.
 
     Un repère porte sur une catégorie, ou sur un groupe : « Studio » compte aussi
     « Studio / Dupont ». `heures` est un objectif, `plafond` une limite.
     """
-    c = fusion(jours, debut_semaine())
+    c = fusion(jours, debut_semaine() if debut is None else debut, fin)
     sortie = []
     for nom, r in REGLES.get("reperes", {}).items():
         s = sum(sec for cle, sec in c.tot.items()
@@ -910,6 +947,43 @@ def reperes(jours):
                        "objectif": round(3600 * r["heures"]) if "heures" in r else None,
                        "plafond": round(3600 * r["plafond"]) if "plafond" in r else None})
     return sortie
+
+
+def semaine(tous, debut, maintenant=None):
+    """Récap de la semaine qui commence le lundi `debut` : travail et facturable, comparés à la semaine
+    d'avant à jour égal (une semaine en cours se compare aux mêmes jours de la précédente), jour le
+    plus chargé, repères, non classé, et taux réel (sur tout le projet) des projets facturables touchés."""
+    maintenant = time.time() if maintenant is None else maintenant
+    debut = minuit(debut + 3600)
+    fin = minuit(debut + 7 * JOUR + 3600)
+    jours = [debut]
+    while len(jours) < 7:
+        jours.append(minuit(jours[-1] + JOUR + 3600))
+    ecoules = [j for j in jours if j <= minuit(maintenant)]
+    borne = minuit(ecoules[-1] + JOUR + 3600) if ecoules else debut
+    avant = minuit(debut - 7 * JOUR + 3600)
+    borne_avant = minuit(avant + len(ecoules) * JOUR + 3600)
+    c, p = fusion(tous, debut, borne), fusion(tous, avant, borne_avant)
+    charge = max(((j, travail(tous.get(j, Collecte()))) for j in ecoules), key=lambda x: x[1], default=(None, 0))
+    total = fusion(tous, 0)
+    taux = []
+    for cle, sec in sorted(c.tot.items(), key=lambda x: -x[1]):
+        f = fiche(cle)
+        if sec < 600 or not f.get("montant") or not f.get("facturable", famille(cle) == PROJETS):
+            continue
+        reel = total.tot.get(cle, 0)
+        taux.append({"cle": cle, "nom": NOMS.get(cle, cle), "semaine": round(sec),
+                     "taux": round(f["montant"] / (reel / 3600)) if reel >= 600 else None,
+                     "devis": round(f["montant"] / f["vendu"]) if f.get("vendu") else None})
+    return {
+        "debut": debut, "jours": len(ecoules), "complete": minuit(maintenant) >= fin,
+        "travail": round(travail(c)), "precedent": round(travail(p)),
+        "facturable": round(facturable(c)), "facturable_precedent": round(facturable(p)),
+        "non_classe": round(c.tot.get(NON_CLASSE, 0)),
+        "charge": {"jour": charge[0], "secondes": round(charge[1])} if charge[1] > 0 else None,
+        "reperes": reperes(tous, debut, borne),
+        "taux": taux,
+    }
 
 
 HISTORIQUE = 730  # jours lus pour les bilans et l'export
