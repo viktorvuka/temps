@@ -10,11 +10,15 @@ Je l'ai faite pour moi, comme graphiste indépendant. Je voulais savoir combien 
 
 ## Au quotidien
 
-Dans la barre des menus, tu as le total de travail de la journée. Un clic ouvre un panneau avec les sept derniers jours en barres colorées par domaine (un clic sur une barre affiche ce jour-là), tes repères de la semaine, puis le temps passé sur chaque projet, rangé par domaine. Chaque ligne se déplie pour montrer ce qu'il y a dedans : des fichiers, des sites, des messages…
+Dans la barre des menus, tu as le total de travail de la journée. Un clic ouvre un panneau avec le ruban de la journée, coloré par projet, où le non classé apparaît hachuré à l'heure où il s'est produit. Sur 7 jours, il laisse la place aux barres de la semaine, et sur 30 jours au calendrier du mois ; un clic sur un jour l'ouvre. En dessous viennent tes projets les plus longs, rangés sous leur domaine. Chaque ligne se déplie pour montrer ce qu'il y a dedans : des fichiers, des sites, des messages…
 
-Le temps non classé est en orange, parce que c'est le seul endroit où il y a quelque chose à faire. Tu cliques sur une ligne, tu choisis jusqu'où va la règle (ce site ou tout le domaine, ce correspondant ou toute sa boîte, ou toute l'app), puis le projet. S'il n'existe pas encore, tu tapes son nom et il est créé. La règle vaut aussi pour tout l'historique, et une barre « Annuler » reste affichée quelques secondes si tu t'es trompé.
+Le temps non classé est en orange, parce que c'est le seul endroit où il y a quelque chose à faire. Sa carte montre les premières sources avec leur suggestion : un clic (ou Entrée) l'accepte sans quitter le panneau. Pour le reste, tu cliques sur une ligne, tu choisis jusqu'où va la règle (ce site ou tout le domaine, ce correspondant ou toute sa boîte, toute l'app, ou juste cette fois, sans règle), puis le projet. Les détails, sous la ligne, montrent les titres de fenêtre, l'adresse et les moments, et la suggestion dit d'où elle vient. S'il n'existe pas encore, tu tapes son nom et il est créé. La règle vaut aussi pour tout l'historique, et une barre « Annuler » reste affichée quelques secondes si tu t'es trompé.
 
 ![Classer une ligne](captures/fr/2-classer.png)
+
+C'est le même écran partout où tu ranges quelque chose : une ligne du panneau ou de la fenêtre, déjà classée ou non, un créneau du ruban, un fichier dans la fiche d'un projet.
+
+Un prestataire qui sert plusieurs clients (un imprimeur en ligne, une banque d'images) se marque comme source partagée : il ne reçoit jamais de règle, et prend le projet sur lequel tu travailles juste avant et juste après. S'il n'y en a qu'un d'un côté, Temps te le propose sans rien ranger.
 
 Pour aller plus vite, Temps fait des suggestions à partir de ce que tu as déjà classé : un site, un titre ou un mot qui mène presque toujours au même projet. Un bouton les accepte toutes d'un coup (et une seule annulation les retire). Il n'y a pas d'IA là-dedans, juste du calcul sur ton Mac.
 
@@ -52,7 +56,7 @@ Les Réglages (⌘,) montrent si Temps a bien ses accès, avec un bouton vers ch
 
 Toutes les 10 secondes, il note l'app au premier plan, le titre de la fenêtre et, quand c'est possible, le détail de ce que tu y fais : le fichier ouvert, la page web, le message lu, la note ou la tâche sélectionnée. Ce détail dépend de chaque app, et celles qui ne donnent ni fichier ni titre apparaissent seulement sous leur nom.
 
-Après deux minutes sans toucher le clavier ni la souris, il retire toute la période de pause (sauf si une vidéo ou une visio tourne). Les fichiers rangés dans un dossier de projets sont classés d'office : `Studio/Clients/Dupont/maquette.indd` devient « Studio / Dupont ». Le temps passé sur l'iPhone et l'iPad compte en hors travail tant que tu n'as rien classé, et le chiffre de la barre des menus ne compte que le travail.
+Après deux minutes sans toucher le clavier ni la souris, il retire toute la période de pause (sauf si une vidéo ou une visio tourne). Les fichiers rangés dans un dossier de projets sont classés d'office : `Studio/Clients/Dupont/maquette.indd` devient « Studio / Dupont ». Ailleurs sur le disque, un dossier qui porte le nom d'un de tes projets suffit : tout ce qu'il contient y va. Quand un projet porte un autre nom que son dossier (la marque d'un client, par exemple), ajoute le nom du client dans « Aussi appelé », sur sa fiche. Le temps passé sur l'iPhone et l'iPad compte en hors travail tant que tu n'as rien classé, et le chiffre de la barre des menus ne compte que le travail.
 
 ## Installation
 
@@ -79,6 +83,8 @@ open Temps.app
 
 Temps.app est l'interface, et c'est elle qui fait tourner en arrière-plan l'enregistreur et un petit serveur local sur 127.0.0.1:8230.
 
+Tant qu'un accès manque, le panneau s'ouvre sur la liste des trois accès, avec un bouton vers chaque volet de Réglages Système ; chaque ligne passe au vert dès que c'est fait.
+
 1. Dans Réglages Système > Confidentialité et sécurité > Accès complet au disque, ajoute `Temps.app`. Sans ça, Temps ne peut pas lire le temps d'écran.
 2. macOS te demande ensuite l'Accessibilité et l'Automatisation pour plusieurs apps : accepte, c'est ce qui permet de lire la fenêtre et le fichier au premier plan.
 3. Pour l'iPhone et l'iPad, active « Partager entre les appareils » dans Temps d'écran.
@@ -95,7 +101,8 @@ Au premier lancement, Temps crée `rules.toml` en copiant `rules.example.fr.toml
 | `[familles]` | Ce qui compte comme activité ou comme hors travail. Tout le reste est un projet. |
 | `[titres]`, `[apps]`, `[chemins]` | Les règles de classement : un texte dans un titre, une URL ou une adresse, une app, un début de chemin. |
 | `[noms]`, `[alias]` | Le nom affiché d'une catégorie, et le lien quand tu as renommé un dossier. |
-| `[projets]` | Les fiches : heures vendues, montant HT, facturable. |
+| `[projets]` | Les fiches : heures vendues, montant HT, facturable, et les autres noms du projet (`aussi`). |
+| `[partages]` | Les sources partagées entre projets : elles suivent le projet qui les entoure. |
 | `[reperes]` | Les objectifs ou les plafonds de la semaine. |
 | `[domaines]` | Les domaines, dans leur ordre : leur nature et les projets qu'ils contiennent. |
 | `[missions]` | La date de départ d'une mission. |
@@ -106,7 +113,7 @@ Au premier lancement, Temps crée `rules.toml` en copiant `rules.example.fr.toml
 
 ## Raccourcis
 
-Quand la fenêtre est ouverte, Temps a son propre menu : ⌘1 à ⌘4 pour À classer, la vue d'ensemble, Projets et Bilan, ⌘E pour exporter le mois en cours.
+Quand la fenêtre est ouverte, Temps a son propre menu : ⌘1 à ⌘3 pour la vue d'ensemble, Projets et Bilan, ⌘0 pour À classer, ⌘E pour exporter le mois en cours.
 
 ## Mode démo
 

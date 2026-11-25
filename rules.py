@@ -6,7 +6,7 @@ FICHIER = (Path(os.environ["TEMPS_REGLES"]) if os.environ.get("TEMPS_REGLES")
            else Path.home() / "Library/Application Support/Temps/demo/rules.toml" if os.environ.get("TEMPS_DEMO")
            else Path(__file__).resolve().parent / "rules.toml")
 LANGUE = os.environ.get("TEMPS_LANGUE", "fr")[:2]
-SECTIONS = {"titres", "apps", "chemins", "noms", "projets", "reperes", "couleurs", "plages", "archives", "missions", "reglages", "forcer", "fusions", "domaines"}
+SECTIONS = {"titres", "apps", "chemins", "noms", "projets", "reperes", "couleurs", "plages", "archives", "missions", "reglages", "forcer", "fusions", "domaines", "partages"}
 
 
 def _valeur(v):

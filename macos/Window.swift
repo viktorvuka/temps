@@ -17,6 +17,7 @@ struct Fiche: Decodable, Identifiable {
     let montant: Double?
     let facturable: Bool
     let taux: Double?
+    var aussi: [String]? = nil
     var id: String { cle }
     var aBilan: Bool { vendu != nil || montant != nil }
 }
@@ -123,6 +124,8 @@ struct Tranche: Decodable, Identifiable {
     let famille: String
     let serie: String
     let contexte: String
+    var app: String? = nil
+    var source: String? = nil
     var id: Double { t }
 }
 
@@ -186,15 +189,16 @@ struct ChoixPeriode: View {
     var body: some View {
         HStack(spacing: 0) {
             Button { etat.decalerPeriode(-1) } label: { Image(systemName: "chevron.left").frame(width: 24, height: 22).contentShape(Rectangle()) }
-                .buttonStyle(.plain)
+                .accessibilityLabel(L("Période précédente"))
+                .buttonStyle(StyleTouche(forme: .capsule))
             Button { ouvert.toggle() } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "calendar").foregroundStyle(.secondary)
+                    Image(systemName: "calendar").foregroundStyle(Color.texteDiscret)
                     Text(libelle).monospacedDigit().lineLimit(1)
                 }
-                .frame(width: 150).contentShape(Rectangle())
+                .frame(width: 150, height: 22).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(StyleTouche(forme: .capsule))
             .help(etat.bornesUnite.0 == etat.bornesUnite.1 ? etat.bornesUnite.0.formatted(date: .complete, time: .omitted)
                   : "\(etat.bornesUnite.0.formatted(date: .long, time: .omitted)) – \(etat.bornesUnite.1.formatted(date: .long, time: .omitted))")
             .popover(isPresented: $ouvert, arrowEdge: .bottom) {
@@ -202,13 +206,13 @@ struct ChoixPeriode: View {
                     VStack(alignment: .leading, spacing: 1) {
                         raccourci("Aujourd'hui", .jour)
                         raccourci("Hier", .jour, recul: 1)
-                        Divider().padding(.vertical, 3)
+                        Divider().padding(.vertical, 4)
                         raccourci("Cette semaine", .semaine)
                         raccourci("Semaine dernière", .semaine, recul: 1)
-                        Divider().padding(.vertical, 3)
+                        Divider().padding(.vertical, 4)
                         raccourci("Ce mois", .mois)
                         raccourci("Mois dernier", .mois, recul: 1)
-                        Divider().padding(.vertical, 3)
+                        Divider().padding(.vertical, 4)
                         raccourci("Ce trimestre", .trimestre)
                         raccourci("Cette année", .annee)
                     }
@@ -219,7 +223,8 @@ struct ChoixPeriode: View {
                 .padding(12)
             }
             Button { etat.decalerPeriode(1) } label: { Image(systemName: "chevron.right").frame(width: 24, height: 22).contentShape(Rectangle()) }
-                .buttonStyle(.plain)
+                .accessibilityLabel(L("Période suivante"))
+                .buttonStyle(StyleTouche(forme: .capsule))
                 .disabled(etat.periodeFinitAujourdhui)
                 .opacity(etat.periodeFinitAujourdhui ? 0.3 : 1)
         }
@@ -266,27 +271,29 @@ struct CalendrierPlage: View {
         VStack(spacing: 8) {
             HStack {
                 Button { mois = cal.date(byAdding: .month, value: -1, to: mois)! } label: { Image(systemName: "chevron.left") }
+                    .accessibilityLabel(L("Mois précédent"))
                 Spacer()
                 Text({ let m = mois.formatted(.dateTime.month(.wide).year()); return m.prefix(1).uppercased() + m.dropFirst() }())
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button { mois = cal.date(byAdding: .month, value: 1, to: mois)! } label: { Image(systemName: "chevron.right") }
+                    .accessibilityLabel(L("Mois suivant"))
                     .disabled(mois >= cal.dateInterval(of: .month, for: aujourdhui)!.start)
             }
             .buttonStyle(.borderless)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 2), count: 7), spacing: 2) {
                 ForEach(Array(entetes.enumerated()), id: \.offset) { _, e in
-                    Text(e).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                    Text(e).font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.texteDiscret)
                 }
                 ForEach(Array(jours.enumerated()), id: \.offset) { _, j in
                     if let j {
                         let futur = j > aujourdhui
                         let dedans = dansPlage(j)
                         Text("\(cal.component(.day, from: j))")
-                            .font(.system(size: 12, weight: cal.isDateInToday(j) ? .bold : .regular)).monospacedDigit()
+                            .font(.system(size: 13, weight: cal.isDateInToday(j) ? .bold : .regular)).monospacedDigit()
                             .frame(width: 30, height: 26)
                             .foregroundStyle(futur ? AnyShapeStyle(.quaternary) : dedans ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
-                            .background(RoundedRectangle(cornerRadius: 6).fill(dedans ? Color.accentColor : .clear))
+                            .background(RoundedRectangle(cornerRadius: 8).fill(dedans ? Color.accentColor : .clear))
                             .contentShape(Rectangle())
                             .onHover { if $0 && !futur { survol = j } }
                             .onTapGesture {
@@ -311,7 +318,16 @@ struct Segment: Identifiable {
     let tranche: Tranche
     var secondes: Double
     var contextes: [String: Double]
+    var tranches: [String: Tranche] = [:]
     var id: Double { debut }
+
+    /// Le créneau, prêt pour l'écran Classer : la source dominante, et le créneau en première portée.
+    var detail: Detail {
+        let ctx = contextes.max { $0.value < $1.value }?.key ?? ""
+        let t = tranches[ctx] ?? tranche
+        return Detail(appareil: "Mac", app: t.app ?? "", contexte: t.source ?? "", secondes: secondes,
+                      dans: tranche.cle, creneau: [debut, fin])
+    }
 }
 
 /// La journée du Mac en un ruban horizontal, coloré par projet, dessiné d'un seul bloc ; le survol donne le détail.
@@ -319,10 +335,18 @@ struct RubanJour: View {
     @EnvironmentObject var etat: Etat
     @State private var survol: Double?
     static let pas = 300.0
+    /// Dans le panneau : sa propre frise, son jour, pas d'en-tête, et un clic qui ouvre Classer dans le panneau.
+    var friseLocale: Frise? = nil
+    var jourLocal: Date? = nil
+    var compact = false
+    var ouvrirSur: ((Detail) -> Void)? = nil
+
+    var donnees: Frise? { compact ? friseLocale : etat.frise }
+    var jour: Date { jourLocal ?? etat.jourFrise }
 
     var bornes: (Double, Double) {
-        let j = etat.jourFrise.timeIntervalSince1970
-        let ts = etat.frise?.tranches.map(\.t) ?? []
+        let j = jour.timeIntervalSince1970
+        let ts = donnees?.tranches.map(\.t) ?? []
         let a = ts.min().map { floor(($0 - j) / 3600) * 3600 + j } ?? j + 8 * 3600
         let b = ts.max().map { ceil(($0 + RubanJour.pas - j) / 3600) * 3600 + j } ?? j + 19 * 3600
         return (Swift.min(a, j + 8 * 3600), Swift.max(b, j + 20 * 3600))
@@ -330,14 +354,16 @@ struct RubanJour: View {
 
     var segments: [Segment] {
         var out: [Segment] = []
-        for t in (etat.frise?.tranches ?? []).sorted(by: { $0.t < $1.t }) {
+        for t in (donnees?.tranches ?? []).sorted(by: { $0.t < $1.t }) {
             if var d = out.last, d.tranche.cle == t.cle, abs(d.fin - t.t) < 1 {
                 d.fin = t.t + RubanJour.pas
                 d.secondes += t.secondes
                 d.contextes[t.contexte, default: 0] += t.secondes
+                d.tranches[t.contexte] = d.tranches[t.contexte] ?? t
                 out[out.count - 1] = d
             } else {
-                out.append(Segment(debut: t.t, fin: t.t + RubanJour.pas, tranche: t, secondes: t.secondes, contextes: [t.contexte: t.secondes]))
+                out.append(Segment(debut: t.t, fin: t.t + RubanJour.pas, tranche: t, secondes: t.secondes,
+                                   contextes: [t.contexte: t.secondes], tranches: [t.contexte: t]))
             }
         }
         return out
@@ -351,59 +377,94 @@ struct RubanJour: View {
 
     var body: some View {
         let segs = segments
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: compact ? 4 : 10) {
+            if !compact {
             HStack(spacing: 8) {
                 Button { etat.decalerPeriode(-1) } label: { Image(systemName: "chevron.left") }
+                    .accessibilityLabel(L("Jour précédent"))
                 Text(etat.jourFrise.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                     .font(.system(size: 13, weight: .semibold))
                 Button { etat.decalerPeriode(1) } label: { Image(systemName: "chevron.right") }
+                    .accessibilityLabel(L("Jour suivant"))
                     .disabled(Calendar.current.isDateInToday(etat.jourFrise))
                 Spacer()
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 8)
+            }
 
-            ruban(segs).padding(.horizontal, 8)
+            ruban(segs).padding(.horizontal, compact ? 0 : 8)
 
-            Text(survol.flatMap { t in segs.first { $0.debut <= t && t < $0.fin } }.map(resume) ?? " ")
-                .font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
-                .padding(.horizontal, 8)
+            if !compact {
+                Text(survol.flatMap { t in segs.first { $0.debut <= t && t < $0.fin } }.map(resume) ?? " ")
+                    .font(.system(size: 11)).foregroundStyle(Color.texteDiscret).monospacedDigit().lineLimit(1)
+                    .padding(.horizontal, 8)
+            }
         }
-        .task(id: etat.jourFrise) { await etat.chargerFrise() }
+        .task(id: compact ? 0 : etat.jourFrise.timeIntervalSince1970) { if !compact { await etat.chargerFrise() } }
     }
 
     func ruban(_ segs: [Segment]) -> some View {
         let (a, b) = bornes
         let couleurs = segs.map { couleurTranche($0.tranche) }
-        let fond = Color.primary.opacity(0.05)
+        let fond = Color.voile
         let trait = Color.primary.opacity(0.15)
         let pointe = survol
+        // dans le panneau, le ruban remplit sa zone et le résumé du survol prend la place des heures
+        let hb: CGFloat = compact ? 48 : 28
+        let enSurvol = compact ? pointe.flatMap { t in segs.first { $0.debut <= t && t < $0.fin } }.map(resume) : nil
         return GeometryReader { geo in
             let w = geo.size.width
             let x = { (t: Double) in CGFloat((t - a) / (b - a)) * w }
             Canvas { ctx, _ in
-                ctx.fill(Path(roundedRect: CGRect(x: 0, y: 2, width: w, height: 28), cornerRadius: 4), with: .color(fond))
+                ctx.fill(Path(roundedRect: CGRect(x: 0, y: 2, width: w, height: hb), cornerRadius: 4), with: .color(fond))
                 for (i, d) in segs.enumerated() {
                     let dedans = pointe.map { d.debut <= $0 && $0 < d.fin } ?? false
-                    let r = CGRect(x: x(d.debut), y: dedans ? 0 : 2, width: Swift.max(1, x(d.fin) - x(d.debut) - 1), height: dedans ? 32 : 28)
-                    ctx.fill(Path(r), with: .color(couleurs[i]))
+                    let r = CGRect(x: x(d.debut), y: dedans ? 0 : 2, width: Swift.max(1, x(d.fin) - x(d.debut) - 1), height: dedans ? hb + 4 : hb)
+                    if d.tranche.famille == nonClasse {
+                        // le non classé, hachuré : il se voit à l'heure où il s'est produit
+                        ctx.fill(Path(r), with: .color(Color.bordSignal))
+                        ctx.drawLayer { c in
+                            c.clip(to: Path(r))
+                            var hx = r.minX - r.height
+                            while hx < r.maxX {
+                                var p = Path(); p.move(to: CGPoint(x: hx, y: r.maxY)); p.addLine(to: CGPoint(x: hx + r.height, y: r.minY))
+                                c.stroke(p, with: .color(Color.orange.opacity(0.9)), lineWidth: 2)
+                                hx += 6
+                            }
+                        }
+                    } else {
+                        ctx.fill(Path(r), with: .color(couleurs[i]))
+                    }
                 }
+                // un repère d'heure sur `pas` heures, de quoi en écrire cinq au plus dans le panneau
+                let heures = Int((b - a) / 3600), pas = compact ? Swift.max(2, Int(ceil(Double(heures) / 5))) : 2
                 var h = a
                 while h <= b {
-                    ctx.fill(Path(CGRect(x: x(h), y: 33, width: 1, height: 5)), with: .color(trait))
-                    if Int((h - a) / 3600) % 2 == 0 {
-                        ctx.draw(Text(heureMinute(h)).font(.system(size: 10)).foregroundStyle(.tertiary), at: CGPoint(x: x(h), y: 47))
+                    ctx.fill(Path(CGRect(x: x(h), y: hb + 5, width: 1, height: 5)), with: .color(trait))
+                    if enSurvol == nil && Int((h - a) / 3600) % pas == 0 && (!compact || (x(h) > 14 && x(h) < w - 14)) {
+                        ctx.draw(Text(heureMinute(h)).font(.system(size: 10)).foregroundStyle(Color.texteDiscret), at: CGPoint(x: x(h), y: hb + 19))
                     }
                     h += 3600
+                }
+                if let t = enSurvol {
+                    ctx.draw(Text(t).font(.system(size: 11)).foregroundStyle(Color.texteDiscret), at: CGPoint(x: 0, y: hb + 19), anchor: .leading)
                 }
             }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 if case .active(let pt) = phase { survol = a + Double(pt.x / w) * (b - a) } else { survol = nil }
             }
+            .onTapGesture { ouvrir(segs) }
             .contextMenu { menuClasser(segs) }
         }
-        .frame(height: 54)
+        .frame(height: compact ? 72 : 54)
+    }
+
+    /// Un clic sur un morceau du ruban ouvre l'écran Classer sur ce créneau.
+    func ouvrir(_ segs: [Segment]) {
+        guard let t = survol, let d = segs.first(where: { $0.debut <= t && t < $0.fin }) else { return }
+        if let o = ouvrirSur { o(d.detail) } else { etat.classerFenetre = d.detail }
     }
 
     /// Clic droit sur un morceau du ruban : le ranger dans un projet ou une activité, quel qu'il soit
@@ -413,6 +474,7 @@ struct RubanJour: View {
             let choix = etat.categories.filter { !$0.archivee && ($0.famille == projets || $0.famille == activites) && $0.missions != true && $0.cle != d.tranche.cle }
             let groupes = Dictionary(grouping: choix) { $0.groupe ?? $0.nom }
             Text("\(heureMinute(d.debut))–\(heureMinute(d.fin)) · \(duree(d.secondes))")
+            Button(L("Classer…")) { etat.classerFenetre = d.detail }
             Menu(L("Classer dans")) {
                 ForEach(groupes.keys.sorted { $0.lowercased() < $1.lowercased() }, id: \.self) { g in
                     let cats = groupes[g]!.sorted { $0.nom.lowercased() < $1.nom.lowercased() }
@@ -453,7 +515,7 @@ struct LigneAClasser: View {
                 if let icone = Apps.partage.icone(d.app) {
                     Image(nsImage: icone).resizable()
                 } else {
-                    Image(systemName: iconeAppareil(d.appareil)).foregroundStyle(.secondary)
+                    Image(systemName: iconeAppareil(d.appareil)).foregroundStyle(Color.texteDiscret)
                 }
             }
             .frame(width: 22, height: 22)
@@ -461,28 +523,28 @@ struct LigneAClasser: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(d.contexte.isEmpty ? d.nomApp : d.contexte).lineLimit(1)
                     Spacer(minLength: 6)
-                    Text(duree(d.secondes)).monospacedDigit().foregroundStyle(.secondary)
+                    Text(duree(d.secondes)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                 }
                 HStack(spacing: 6) {
                     Text([d.contexte.isEmpty ? nil : d.nomApp, d.appareil == "Mac" ? nil : d.appareil].compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.system(size: 11)).foregroundStyle(Color.texteDiscret).lineLimit(1)
                     if let s = suggestion {
                         HStack(spacing: 4) {
-                            Image(systemName: "sparkle").font(.system(size: 8))
+                            Image(systemName: "sparkle").font(.system(size: 10))
                             Text(s.nom).lineLimit(1)
                         }
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(s.couleur)
-                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .padding(.horizontal, 8).padding(.vertical, 1)
                         .background(Capsule().fill(s.couleur.opacity(0.15)))
                     }
                 }
             }
         }
         .font(.system(size: 13))
-        .padding(.vertical, 6).padding(.horizontal, 8)
+        .padding(.vertical, 8).padding(.horizontal, 8)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            choisie ? Color.orange.opacity(0.16) : Color.primary.opacity(survol ? 0.05 : 0)))
+            choisie ? Color.fondSignal : Color.primary.opacity(survol ? 0.05 : 0)))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(choisie ? Color.orange.opacity(0.5) : .clear))
         .contentShape(Rectangle())
         .onHover { survol = $0 }
@@ -500,17 +562,17 @@ struct VueAClasser: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(duree(total)).font(.system(size: 34, weight: .semibold)).tracking(-0.6).monospacedDigit()
-                        .foregroundStyle(total > 0 ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.primary))
-                    Text(L("non classées, en %d lignes", file.count)).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(duree(total)).font(.system(size: 28, weight: .semibold)).tracking(-0.6).monospacedDigit()
+                        .foregroundStyle(total > 0 ? AnyShapeStyle(Color.signal) : AnyShapeStyle(.primary))
+                    Text(L("non classées, en %d lignes", file.count)).font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
                 }
                 Spacer()
-                let suggerees = file.filter { $0.suggestion != nil }
+                let suggerees = file.filter { $0.suggestion != nil && $0.partage != true }
                 if !suggerees.isEmpty {
                     Button { Task { await etat.accepterSuggestions(suggerees) } } label: {
                         Label(L("Accepter les %d suggestions", suggerees.count), systemImage: "sparkles")
                     }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .buttonStyle(StylePlein())
                 }
             }
             HStack(alignment: .top, spacing: 16) {
@@ -536,7 +598,7 @@ struct VueAClasser: View {
                         ScrollView { EcranClasser(d: d, enFile: true).padding(.horizontal, 8) }.id(d.id)
                     } else {
                         Text(file.isEmpty ? L("Tout est classé.") : L("Choisis une ligne."))
-                            .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .foregroundStyle(Color.texteDiscret).frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
@@ -668,10 +730,12 @@ extension Etat {
     }
 
     /// Fiche vide : on la retire. Sinon on la pose en entier (vendu, montant, facturable).
-    func majFiche(_ f: Fiche, vendu: Double?, montant: Double?, facturable: Bool) async {
+    func majFiche(_ f: Fiche, vendu: Double?, montant: Double?, facturable: Bool, aussi: [String]? = nil) async {
         var t: [String: Any] = ["facturable": facturable]
         if let v = vendu { t["vendu"] = v }
         if let m = montant { t["montant"] = m }
+        let a = aussi ?? f.aussi ?? []
+        if !a.isEmpty { t["aussi"] = a }
         await poser("projets", f.cle, t, message: L("Fiche de %@ mise à jour", f.nom))
     }
 
@@ -740,11 +804,11 @@ struct ChampNombre: View {
                 Text(format(valeur)).monospacedDigit()
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            if !suffixe.isEmpty && (valeur != nil || edite) { Text(suffixe).foregroundStyle(.tertiary) }
+            if !suffixe.isEmpty && (valeur != nil || edite) { Text(suffixe).foregroundStyle(Color.texteDiscret) }
         }
-        .padding(.horizontal, 5).padding(.vertical, 2)
+        .padding(.horizontal, 4).padding(.vertical, 2)
         .padding(.vertical, cadre ? 2 : 0)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(edite ? 0.09 : survol ? 0.07 : cadre ? 0.05 : 0)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(edite ? 0.09 : survol ? 0.07 : cadre ? 0.05 : 0)))
         .contentShape(Rectangle())
         .onHover { survol = $0 }
         .onTapGesture { edite = true }
@@ -772,23 +836,23 @@ struct HistogrammeLong: View {
         let parts = (j.parts ?? [:]).filter { $0.value >= 60 }.sorted { $0.value > $1.value }
         return VStack(alignment: .leading, spacing: 5) {
             Text(Date(timeIntervalSince1970: j.jour).formatted(.dateTime.weekday(.wide).day().month(.wide)).capitalized)
-                .font(.system(size: 12, weight: .semibold))
-            Text(L("%@ de travail", duree(j.travail))).font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.system(size: 13, weight: .semibold))
+            Text(L("%@ de travail", duree(j.travail))).font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
             if !parts.isEmpty { Divider().padding(.vertical, 1) }
             ForEach(parts.prefix(8), id: \.key) { k, v in
                 HStack(spacing: 6) {
-                    RoundedRectangle(cornerRadius: 2).fill(couleurSerie(k)).frame(width: 8, height: 8)
+                    RoundedRectangle(cornerRadius: 4).fill(couleurSerie(k)).frame(width: 8, height: 8)
                     Text(L(libelleSerie(k))).lineLimit(1)
                     Spacer(minLength: 12)
-                    Text(duree(v)).monospacedDigit().foregroundStyle(.secondary)
+                    Text(duree(v)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                 }
                 .font(.system(size: 11))
             }
         }
-        .padding(10)
+        .padding(12)
         .frame(width: 220, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(.regularMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.1)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(.regularMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.survol))
         .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
         .allowsHitTesting(false)
     }
@@ -829,7 +893,7 @@ struct HistogrammeLong: View {
                 Spacer()
                 if let b = jours.last { Text(f.string(from: Date(timeIntervalSince1970: b.jour))) }
             }
-            .font(.system(size: 11)).foregroundStyle(.tertiary)
+            .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
         }
         .zIndex(1)
     }
@@ -840,12 +904,20 @@ struct HistogrammeLong: View {
 struct CarteRecap: View {
     let r: Recap
 
-    func ligne(_ titre: String, _ valeur: String, _ note: String? = nil, alerte: Bool = false) -> some View {
+    /// Les jours comparés d'une semaine en cours : « lun.–mar. ».
+    var joursCompares: String {
+        let f = formatDate("EEE"), d0 = Date(timeIntervalSince1970: r.debut)
+        let fin = Calendar.current.date(byAdding: .day, value: Swift.max(r.jours, 1) - 1, to: d0) ?? d0
+        return r.jours <= 1 ? f.string(from: d0) : "\(f.string(from: d0))–\(f.string(from: fin))"
+    }
+
+    func ligne(_ titre: String, _ valeur: String, _ note: String? = nil, alerte: Bool = false, precision: String? = nil) -> some View {
         HStack(spacing: 6) {
             Text(L(titre)).lineLimit(1)
+            if let p = precision { Text(p).foregroundStyle(Color.texteDiscret).lineLimit(1) }
             Spacer()
-            Text(valeur).monospacedDigit().foregroundStyle(alerte ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
-            if let n = note { Text(n).monospacedDigit().foregroundStyle(.tertiary) }
+            Text(valeur).monospacedDigit().foregroundStyle(alerte ? AnyShapeStyle(Color.signal) : AnyShapeStyle(Color.texteDiscret))
+            if let n = note { Text(n).monospacedDigit().foregroundStyle(Color.texteDiscret) }
         }
         .font(.system(size: 13))
         .padding(.vertical, 4).padding(.horizontal, 8)
@@ -853,8 +925,10 @@ struct CarteRecap: View {
 
     var body: some View {
         Carte {
-            Etiquette(texte: "Récap de la semaine")
-            ligne(r.complete ? "Semaine d'avant" : "Semaine d'avant, à jour égal", duree(r.precedent), ecart(r.travail, r.precedent))
+            Etiquette(texte: "La semaine")
+            // semaine en cours : « dernière » ; une semaine passée se compare à la « précédente »
+            ligne(r.complete ? "Semaine précédente" : "Semaine dernière", duree(r.precedent), ecart(r.travail, r.precedent),
+                  precision: r.complete ? nil : joursCompares)
             ligne("Facturable", duree(r.facturable), ecart(r.facturable, r.facturable_precedent))
             if let c = r.charge {
                 let jour = Date(timeIntervalSince1970: c.jour).formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
@@ -862,7 +936,7 @@ struct CarteRecap: View {
             }
             ForEach(r.reperes) { LigneRepere(r: $0) }
             if !r.taux.isEmpty {
-                Etiquette(texte: "Taux réel").padding(.top, 6)
+                Etiquette(texte: "Taux horaire").padding(.top, 8)
                 ForEach(r.taux) { t in
                     ligne(t.nom, t.taux.map { "\(Int($0)) €/h" } ?? "–",
                           t.devis.map { L("devis %d €/h", Int($0)) }, alerte: (t.taux ?? 0) < (t.devis ?? 0))
@@ -882,12 +956,12 @@ struct VueEnsemble: View {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(duree(etat.travailFenetre)).font(.system(size: 34, weight: .semibold)).tracking(-0.6).monospacedDigit()
+                        Text(duree(etat.travailFenetre)).font(.system(size: 28, weight: .semibold)).tracking(-0.6).monospacedDigit()
                         Text(etat.joursPeriode == 1
                              ? L("de travail ce jour-là, dont %@ facturables", duree(etat.facturableFenetre))
                              : L("de travail sur %d jours, soit %@ par jour, dont %@ facturables", etat.joursPeriode,
                                  duree(etat.travailFenetre / Double(etat.joursPeriode)), duree(etat.facturableFenetre)))
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                            .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
                     }
                     Spacer()
                 }
@@ -948,10 +1022,10 @@ struct CarteBilan: View {
         let depasse = f.vendu.map { reel > $0 } ?? false
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text(f.nom).font(.system(size: 14, weight: .semibold))
+                Text(f.nom).font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if let t = f.taux {
-                    Text("\(euros(t)) / h").font(.system(size: 18, weight: .semibold)).monospacedDigit()
+                    Text("\(euros(t)) / h").font(.system(size: 17, weight: .semibold)).monospacedDigit()
                 }
             }
             if let v = f.vendu {
@@ -960,9 +1034,9 @@ struct CarteBilan: View {
                     Text(L("%@ réelles sur %@ vendues", heures(f.total), heures(v * 3600)))
                     Spacer()
                     Text(depasse ? "+\(heures((reel - v) * 3600))" : L("%@ de marge", heures((v - reel) * 3600)))
-                        .foregroundStyle(depasse ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(depasse ? AnyShapeStyle(Color.signal) : AnyShapeStyle(Color.texteDiscret))
                 }
-                .font(.system(size: 12)).monospacedDigit()
+                .font(.system(size: 13)).monospacedDigit()
             }
             HStack(spacing: 12) {
                 if let m = f.montant { Text(L("%@ HT", euros(m))) }
@@ -971,12 +1045,12 @@ struct CarteBilan: View {
                     Text(L("depuis le %@", Date(timeIntervalSince1970: p).formatted(.dateTime.day().month(.wide))))
                 }
             }
-            .font(.system(size: 11)).foregroundStyle(.tertiary)
+            .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
         }
         .padding(16)
         .contentShape(Rectangle())
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.035)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.voile))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.fondPastille))
     }
 }
 
@@ -995,20 +1069,20 @@ struct VueBilan: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 LazyVGrid(columns: grille, spacing: 16) {
-                    ForEach(enCours) { f in CarteBilan(f: f).onTapGesture { ouvrir(f) } }
+                    ForEach(enCours) { f in CarteBilan(f: f).touchable(rayon: Rayon.grand).onTapGesture { ouvrir(f) } }
                 }
                 if !archivees.isEmpty {
                     HStack(spacing: 7) {
-                        Image(systemName: "archivebox").font(.system(size: 12))
-                        Text("Archivés").font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "archivebox").font(.system(size: 13))
+                        Text("Archivés").font(.system(size: 13, weight: .semibold))
                         Text("\(archivees.count)").font(.system(size: 11)).monospacedDigit()
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                            .padding(.horizontal, 8).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.fondPastille))
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.texteDiscret)
                     .padding(.top, 8)
                     LazyVGrid(columns: grille, spacing: 16) {
-                        ForEach(archivees) { f in CarteBilan(f: f).opacity(0.65).onTapGesture { ouvrir(f) } }
+                        ForEach(archivees) { f in CarteBilan(f: f).opacity(0.65).touchable(rayon: Rayon.grand).onTapGesture { ouvrir(f) } }
                     }
                 }
             }
@@ -1031,7 +1105,7 @@ struct FenetrePrincipale: View {
     var body: some View {
         VStack(spacing: 0) {
             if let e = etat.erreurFenetre {
-                Text(e).font(.callout).foregroundStyle(.orange).padding(10)
+                BanniereErreur(texte: e).padding(.horizontal, 24).padding(.top, 8)
             }
             switch rubrique {
             case .ensemble: VueEnsemble()
@@ -1059,11 +1133,12 @@ struct FenetrePrincipale: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(actif ? Color.white : Color.orange)
                             .frame(width: 30, height: 30)
-                            .background(Circle().fill(actif ? Color.orange : Color.orange.opacity(0.16)))
+                            .background(Circle().fill(actif ? Color.orange : Color.fondSignal))
                             .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(StyleTouche(forme: .cercle))
                     .help(L("À classer : %@ en %d lignes", duree(reste), etat.aRattraper.count))
+                    .accessibilityLabel(L("À classer : %@ en %d lignes", duree(reste), etat.aRattraper.count))
                 }
             }
             .sansCapsule()
@@ -1080,10 +1155,10 @@ struct FenetrePrincipale: View {
                                 .background(Capsule().fill(Color.primary.opacity(actif ? 0.1 : 0)))
                                 .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(StyleTouche(forme: .capsule))
                     }
                 }
-                .padding(3)
+                .padding(4)
                 .modifier(CapsuleDeVerre())
                 .fixedSize()
             }
@@ -1096,22 +1171,38 @@ struct FenetrePrincipale: View {
                     Text(r.message).lineLimit(1)
                     Spacer()
                     Button("Annuler") { Task { await etat.annuler() } }
-                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.lien)
+                        .buttonStyle(StyleLien()).fontWeight(.semibold)
                 }
-                .font(.system(size: 12))
-                .padding(.horizontal, 14).padding(.vertical, 10)
+                .font(.system(size: 13))
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(maxWidth: 420)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.12)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.appui))
                 .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
                 .padding(16)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(glissement(.bottom))
             }
         }
         .environment(\.dansFenetre, true)
-        .sheet(item: $etat.classerFenetre) { d in
-            ScrollView { EcranClasser(d: d).padding(18) }.frame(width: 400).frame(minHeight: 300, idealHeight: 520, maxHeight: 560).environmentObject(etat)
+        .overlay {
+            // un clic à côté ferme, comme Échap
+            if let d = etat.classerFenetre {
+                ZStack {
+                    Color.black.opacity(0.18).ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { etat.classerFenetre = nil }
+                    ScrollView { EcranClasser(d: d).padding(16) }
+                        .frame(width: 400).frame(maxHeight: 560)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .windowBackgroundColor)))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.appui))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.3), radius: 18, y: 6)
+                        .padding(24)
+                }
+                .transition(.opacity)
+            }
         }
+        .animation(mouvement(.snappy(duration: 0.15)), value: etat.classerFenetre?.id)
         .task { etat.fenetreOuverte = true; await etat.chargerFenetre() }
         .onAppear {
             if let r = etat.rubriqueDemandee, let x = Rubrique(rawValue: r) { rubrique = x; etat.rubriqueDemandee = nil }
@@ -1147,7 +1238,7 @@ struct CapsuleDeVerre: ViewModifier {
         if #available(macOS 26.0, *) {
             content.glassEffect(.regular, in: Capsule())
         } else {
-            content.background(Capsule().fill(.regularMaterial)).overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+            content.background(Capsule().fill(.regularMaterial)).overlay(Capsule().strokeBorder(Color.fondPastille))
         }
     }
 }

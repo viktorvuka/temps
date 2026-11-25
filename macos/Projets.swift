@@ -53,12 +53,12 @@ struct VueProjets: View {
             EcranOrganiser()
                 .frame(width: 380)
                 .frame(maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.045)))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.07)))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.voile))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.fondPastille))
             FicheProjet()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.045)))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.07)))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.voile))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.fondPastille))
         }
         .padding(24)
         .onAppear {
@@ -75,9 +75,24 @@ struct SectionFiche<Contenu: View>: View {
     @ViewBuilder let contenu: Contenu
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L(titre)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            Text(L(titre)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.texteDiscret)
             contenu
         }
+    }
+}
+
+/// Un champ discret pour ajouter un nom ; Entrée l'ajoute et vide le champ.
+struct ChampAutreNom: View {
+    let ajouter: (String) -> Void
+    @State private var texte = ""
+    var body: some View {
+        TextField(L("Ajouter un nom"), text: $texte)
+            .textFieldStyle(.roundedBorder).font(.system(size: 13)).frame(width: 150)
+            .onSubmit {
+                let n = texte.trimmingCharacters(in: .whitespaces)
+                if !n.isEmpty { ajouter(n) }
+                texte = ""
+            }
     }
 }
 
@@ -93,6 +108,7 @@ struct FicheProjet: View {
                     entete(c)
                     if c.famille == projets {
                         chiffres(c)
+                        autresNoms(c)
                         missions(c)
                     }
                     SectionPlages(cles: [c.cle], cleDefaut: c.cle)
@@ -103,7 +119,7 @@ struct FicheProjet: View {
             }
             .id(cle)
         } else {
-            Text("Choisis un projet.").foregroundStyle(.secondary)
+            Text("Choisis un projet.").foregroundStyle(Color.texteDiscret)
         }
     }
 
@@ -118,14 +134,15 @@ struct FicheProjet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             Circle().fill(teinte).frame(width: 11, height: 11)
-                            Text(g).font(.system(size: 24, weight: .semibold)).lineLimit(1)
+                            Text(g).font(.system(size: 17, weight: .semibold)).lineLimit(1)
                         }
-                        Text(L(membre?.famille ?? projets)).font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(L(membre?.famille ?? projets)).font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(duree(d?.total ?? 0)).font(.system(size: 24, weight: .semibold)).monospacedDigit()
-                        Text(L("sur la période")).font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(d.map { duree($0.total) } ?? "—").font(.system(size: 28, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(d == nil ? AnyShapeStyle(Color.texteDiscret) : AnyShapeStyle(.primary))
+                        Text(L("sur la période")).font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
                     }
                 }
                 SectionPlages(cles: Set(etat.categories.filter { $0.nom == g || $0.nom.hasPrefix(g + " / ") }.map(\.cle)),
@@ -140,7 +157,7 @@ struct FicheProjet: View {
                                             HStack {
                                                 Text(p.nom.hasPrefix(g + " / ") ? String(p.nom.dropFirst(g.count + 3)) : p.nom).lineLimit(1)
                                                 Spacer()
-                                                Text(duree(p.secondes)).monospacedDigit().foregroundStyle(.secondary)
+                                                Text(duree(p.secondes)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                                             }
                                             GeometryReader { geo in
                                                 Capsule().fill(teinte.opacity(0.75))
@@ -148,10 +165,11 @@ struct FicheProjet: View {
                                             }
                                             .frame(height: 4)
                                         }
+                                        .padding(.vertical, 2).padding(.horizontal, 4)
                                         .contentShape(Rectangle())
                                     }
-                                    .buttonStyle(.plain)
-                                    .font(.system(size: 12))
+                                    .buttonStyle(StyleTouche())
+                                    .font(.system(size: 13))
                                 }
                             }
                         }
@@ -164,7 +182,7 @@ struct FicheProjet: View {
                         }
                     }
                 } else if d != nil {
-                    Text("Rien sur cette période.").foregroundStyle(.secondary)
+                    Text("Rien sur cette période.").foregroundStyle(Color.texteDiscret)
                 }
             }
             .padding(24)
@@ -184,16 +202,17 @@ struct FicheProjet: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Circle().fill(couleur(c)).frame(width: 11, height: 11)
-                    Text(c.feuille).font(.system(size: 24, weight: .semibold)).lineLimit(1)
+                    Text(c.feuille).font(.system(size: 17, weight: .semibold)).lineLimit(1)
                 }
                 Text([c.groupe, L(c.famille)].compactMap { $0 }.joined(separator: " · "))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(duree(etat.detailProjet?.cle == c.cle ? etat.detailProjet!.total : 0))
-                    .font(.system(size: 24, weight: .semibold)).monospacedDigit()
-                Text(L("sur la période")).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(etat.detailProjet?.cle == c.cle ? duree(etat.detailProjet!.total) : "—")
+                    .font(.system(size: 28, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(etat.detailProjet?.cle == c.cle ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.texteDiscret))
+                Text(L("sur la période")).font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
             }
         }
     }
@@ -211,27 +230,27 @@ struct FicheProjet: View {
         return SectionFiche(titre: "Devis") {
             Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 10) {
                 GridRow {
-                    Text("Heures vendues").foregroundStyle(.secondary)
+                    Text("Heures vendues").foregroundStyle(Color.texteDiscret)
                     ChampNombre(valeur: f.vendu, suffixe: "h", cadre: true) { v in
                         Task { await etat.majFiche(f, vendu: v, montant: f.montant, facturable: f.facturable) }
                     }.frame(width: 110)
-                    Text("Total passé").foregroundStyle(.secondary)
+                    Text("Total passé").foregroundStyle(Color.texteDiscret)
                     Text(heures(f.total)).monospacedDigit()
                 }
                 GridRow {
-                    Text("Montant HT").foregroundStyle(.secondary)
+                    Text("Montant HT").foregroundStyle(Color.texteDiscret)
                     ChampNombre(valeur: f.montant, suffixe: Locale.current.currencySymbol ?? "€", cadre: true) { v in
                         Task { await etat.majFiche(f, vendu: f.vendu, montant: v, facturable: f.facturable) }
                     }.frame(width: 110)
-                    Text("Bilan").foregroundStyle(.secondary)
+                    Text("Bilan").foregroundStyle(Color.texteDiscret)
                     bilan(f)
                 }
                 GridRow {
-                    Text("Repère par semaine").foregroundStyle(.secondary)
+                    Text("Repère par semaine").foregroundStyle(Color.texteDiscret)
                     ChampNombre(valeur: repere, suffixe: "h", cadre: true) { v in
                         Task { await etat.majRepere(c.nom, valeur: v, plafond: false) }
                     }.frame(width: 110)
-                    Text("Facturable").foregroundStyle(.secondary)
+                    Text("Facturable").foregroundStyle(Color.texteDiscret)
                     Toggle("", isOn: Binding(get: { f.facturable }, set: { b in
                         Task { await etat.majFiche(f, vendu: f.vendu, montant: f.montant, facturable: b) }
                     })).labelsHidden().toggleStyle(.switch).controlSize(.small)
@@ -241,15 +260,47 @@ struct FicheProjet: View {
         }
     }
 
+    // MARK: Aussi appelé
+
+    /// Les autres noms du projet (le client derrière une marque, un ancien nom) : Temps les reconnaît
+    /// dans les dossiers, les mails et les titres comme le nom du projet.
+    func autresNoms(_ c: Categorie) -> some View {
+        let f = fiche(c)
+        let liste = f.aussi ?? []
+        func ecrire(_ l: [String]) {
+            Task { await etat.majFiche(f, vendu: f.vendu, montant: f.montant, facturable: f.facturable, aussi: l) }
+        }
+        return SectionFiche(titre: "Aussi appelé") {
+            Rangs(espace: 6) {
+                ForEach(liste, id: \.self) { n in
+                    HStack(spacing: 5) {
+                        Text(n)
+                        Button { ecrire(liste.filter { $0 != n }) } label: {
+                            Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                        }
+                        .buttonStyle(StyleLien(couleur: Color.texteDiscret))
+                        .accessibilityLabel(L("Retirer « %@ »", n))
+                    }
+                    .font(.system(size: 13))
+                    .padding(.vertical, 4).padding(.horizontal, 8)
+                    .background(Capsule().fill(Color.fondPastille))
+                }
+                ChampAutreNom { n in
+                    if !liste.contains(where: { $0.lowercased() == n.lowercased() }) { ecrire(liste + [n]) }
+                }
+            }
+        }
+    }
+
     @ViewBuilder func bilan(_ f: Fiche) -> some View {
         if let v = f.vendu {
             let ecart = f.total / 3600 - v
             Text(ecart > 0 ? L("%@ de dépassement", heures(ecart * 3600)) : L("%@ de marge", heures(-ecart * 3600)))
-                .foregroundStyle(ecart > 0 ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.primary))
+                .foregroundStyle(ecart > 0 ? AnyShapeStyle(Color.signal) : AnyShapeStyle(.primary))
         } else if let t = f.taux {
             Text("\(euros(t)) / h")
         } else {
-            Text("—").foregroundStyle(.tertiary)
+            Text("—").foregroundStyle(Color.texteDiscret)
         }
     }
 
@@ -265,12 +316,12 @@ struct FicheProjet: View {
                         DatePicker("", selection: Binding(get: { debut }, set: { d in Task { await etat.dater(c, d) } }),
                                    displayedComponents: .date).labelsHidden().fixedSize()
                         Button(L("Retirer la date")) { Task { await etat.dater(c, nil) } }
-                            .buttonStyle(.plain).foregroundStyle(.secondary).font(.system(size: 12))
+                            .buttonStyle(StyleLien(couleur: Color.texteDiscret)).font(.system(size: 11))
                     } else {
                         Button { Task { await etat.dater(c, Date()) } } label: {
-                            Label(L("Date de départ"), systemImage: "plus").font(.system(size: 12, weight: .medium))
+                            Label(L("Date de départ"), systemImage: "plus").font(.system(size: 13, weight: .medium))
                         }
-                        .buttonStyle(.plain).foregroundStyle(Color.lien)
+                        .buttonStyle(StyleLien())
                     }
                 }
             }
@@ -282,7 +333,7 @@ struct FicheProjet: View {
     @ViewBuilder func detail(_ c: Categorie) -> some View {
         if let d = etat.detailProjet, d.cle == c.cle {
             if d.total < 60 {
-                Text("Rien sur cette période.").foregroundStyle(.secondary)
+                Text("Rien sur cette période.").foregroundStyle(Color.texteDiscret)
             } else {
                 SectionFiche(titre: "Jours") { BarresJours(jours: d.jours, couleur: couleur(c)) }
                 SectionFiche(titre: "Apps") { Barres(lignes: d.apps, max: d.apps.first?.secondes ?? 1, couleur: couleur(c), contexte: false) }
@@ -313,8 +364,8 @@ struct BarresJours: View {
             HStack(alignment: .bottom, spacing: p.count > 40 ? 1 : 3) {
                 ForEach(Array(p.enumerated()), id: \.offset) { _, x in
                     ZStack(alignment: .bottom) {
-                        RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.05))
-                        RoundedRectangle(cornerRadius: 2).fill(couleur).frame(height: CGFloat(x.1 / max) * 70)
+                        RoundedRectangle(cornerRadius: 4).fill(Color.voile)
+                        RoundedRectangle(cornerRadius: 4).fill(couleur).frame(height: CGFloat(x.1 / max) * 70)
                     }
                     .frame(height: 70).frame(maxWidth: .infinity)
                     .help("\(Date(timeIntervalSince1970: x.0).formatted(f)) · \(duree(x.1))")
@@ -325,7 +376,7 @@ struct BarresJours: View {
                 Spacer()
                 if let b = p.last { Text(Date(timeIntervalSince1970: b.0).formatted(f)) }
             }
-            .font(.system(size: 10)).foregroundStyle(.tertiary)
+            .font(.system(size: 10)).foregroundStyle(Color.texteDiscret)
         }
     }
 }
@@ -359,7 +410,7 @@ struct LigneBarre: View {
                 if let icone = Apps.partage.icone(l.app) {
                     Image(nsImage: icone).resizable()
                 } else {
-                    Image(systemName: iconeAppareil(l.appareil)).foregroundStyle(.secondary)
+                    Image(systemName: iconeAppareil(l.appareil)).foregroundStyle(Color.texteDiscret)
                 }
             }
             .frame(width: 18, height: 18)
@@ -367,20 +418,17 @@ struct LigneBarre: View {
                 HStack {
                     Text(contexte ? (l.contexte ?? "") : l.detail.nomApp).lineLimit(1)
                     Spacer()
-                    if contexte && (survol || choix) {
-                        Button { choix = true } label: {
+                    if contexte && survol {
+                        Button {
+                            var d = l.detail
+                            d.dans = etat.projetChoisi ?? ""
+                            etat.classerFenetre = d
+                        } label: {
                             Label(L("Déplacer"), systemImage: "arrow.turn.up.right").font(.system(size: 11, weight: .medium))
                         }
-                        .buttonStyle(.plain).foregroundStyle(Color.lien)
-                        .popover(isPresented: $choix, arrowEdge: .bottom) {
-                            ChoixCategorie { cle in
-                                choix = false
-                                Task { await etat.deplacer(l.detail, vers: cle) }
-                            }
-                            .environmentObject(etat)
-                        }
+                        .buttonStyle(StyleLien())
                     }
-                    Text(duree(l.secondes)).monospacedDigit().foregroundStyle(.secondary)
+                    Text(duree(l.secondes)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                 }
                 GeometryReader { g in
                     Capsule().fill(couleur.opacity(0.75)).frame(width: Swift.max(3, g.size.width * CGFloat(l.secondes / max)))
@@ -388,7 +436,7 @@ struct LigneBarre: View {
                 .frame(height: 4)
             }
         }
-        .font(.system(size: 12))
+        .font(.system(size: 13))
         .contentShape(Rectangle())
         .onHover { survol = $0 }
     }
@@ -586,7 +634,7 @@ struct ListeDomaines: View {
     func basculer(_ k: String) {
         var r = replies
         if r.contains(k) { r.remove(k) } else { r.insert(k) }
-        withAnimation(.easeOut(duration: 0.15)) { repliesTexte = r.sorted().joined(separator: "\n") }
+        withAnimation(mouvement(.easeOut(duration: 0.15))) { repliesTexte = r.sorted().joined(separator: "\n") }
     }
 
     var arbre: [Dom] {
@@ -605,7 +653,7 @@ struct ListeDomaines: View {
     func couleur(_ cle: String, _ nom: String) -> Color { couleurSerie(serie(cle: cle, nom: nom, famille: famille)) }
 
     func chevron(_ ouvert: Bool) -> some View {
-        Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
+        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.texteDiscret)
             .rotationEffect(.degrees(ouvert ? 90 : 0)).frame(width: 10)
     }
 
@@ -619,17 +667,17 @@ struct ListeDomaines: View {
                 Circle().fill(couleur(d.nom, d.nom)).frame(width: 7, height: 7)
                 Text(d.nom).font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Text(duree(d.total)).font(.system(size: 13)).monospacedDigit().foregroundStyle(.secondary)
+                Text(duree(d.total)).font(.system(size: 13)).monospacedDigit().foregroundStyle(Color.texteDiscret)
             }
-            .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 2)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 2)
+            .touchable()
             .onTapGesture { basculer("d:" + d.nom) }
             if ouvert {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(d.projets) { p in
                         if p.postes.count == 1 && p.postes[0].nom == p.prefixe || p.postes.count == 1 && p.postes[0].nom == d.nom + " / " + p.nom {
                             LignePoste(poste: p.postes[0], max: max, discret: true, affiche: p.nom, pastille: couleur(p.postes[0].cle, p.postes[0].nom))
-                                .padding(.leading, 15)
+                                .padding(.leading, 16)
                         } else {
                             let po = !r.contains("p:" + p.prefixe)
                             HStack(spacing: 5) {
@@ -637,22 +685,22 @@ struct ListeDomaines: View {
                                 Circle().fill(couleur(p.prefixe, p.prefixe)).frame(width: 7, height: 7)
                                 Text(p.nom).font(.system(size: 13))
                                 Spacer()
-                                Text(duree(p.total)).font(.system(size: 13)).monospacedDigit().foregroundStyle(.secondary)
+                                Text(duree(p.total)).font(.system(size: 13)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                             }
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .contentShape(Rectangle())
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .touchable()
                             .onTapGesture { basculer("p:" + p.prefixe) }
                             if po {
                                 ForEach(p.postes.sorted { $0.secondes > $1.secondes }) { m in
                                     let feuille = m.nom == p.prefixe ? L("Sans mission") : (m.nom.components(separatedBy: " / ").last ?? m.nom)
                                     LignePoste(poste: m, max: max, discret: true, affiche: feuille)
-                                        .padding(.leading, 30)
+                                        .padding(.leading, 32)
                                 }
                             }
                         }
                     }
                 }
-                .padding(.leading, 10)
+                .padding(.leading, 12)
             }
         }
         if let a = autres { LignePoste(poste: a, max: max, discret: true) }
@@ -670,6 +718,7 @@ struct PlageSaisie: Decodable, Identifiable, Hashable {
     let note: String
     let nom: String?
     var force: Bool? = nil
+    var motif: String? = nil
 }
 
 extension Etat {
@@ -680,16 +729,16 @@ extension Etat {
         plagesSaisies = r["plages"] ?? []
     }
 
-    func ajouterPlage(debut: Date, fin: Date, cle: String, note: String, force: Bool = false, message: String? = nil) async {
+    func ajouterPlage(debut: Date, fin: Date, cle: String, note: String, force: Bool = false, motif: String = "", message: String? = nil) async {
         let nom = categories.first { $0.cle == cle }?.nom ?? cle
-        await modifier("manuel", ["debut": debut.timeIntervalSince1970, "fin": fin.timeIntervalSince1970, "cle": cle, "note": note, "force": force],
+        await modifier("manuel", ["debut": debut.timeIntervalSince1970, "fin": fin.timeIntervalSince1970, "cle": cle, "note": note, "force": force, "motif": motif],
                        message: message ?? L("Plage ajoutée à %@", nom)) { r in ("manuel/retirer", ["id": r.avant as? String ?? ""]) }
         await chargerSaisies()
     }
 
     func retirerPlage(_ p: PlageSaisie) async {
         await modifier("manuel/retirer", ["id": p.id], message: L("Plage retirée")) { _ in
-            ("manuel", ["debut": p.debut, "fin": p.fin, "cle": p.cle, "note": p.note, "force": p.force == true])
+            ("manuel", ["debut": p.debut, "fin": p.fin, "cle": p.cle, "note": p.note, "force": p.force == true, "motif": p.motif ?? ""])
         }
         await chargerSaisies()
     }
@@ -736,7 +785,7 @@ struct FormulairePlage: View {
                     HStack {
                         Text(etat.categories.first { $0.cle == p }?.nom ?? p).font(.system(size: 13, weight: .semibold))
                         Spacer()
-                        Button(L("Changer")) { choisi = nil }.buttonStyle(.plain).foregroundStyle(Color.lien)
+                        Button(L("Changer")) { choisi = nil }.buttonStyle(StyleLien())
                     }
                 } else {
                     TextField(L("Chercher un projet"), text: $recherche).textFieldStyle(.roundedBorder)
@@ -752,24 +801,24 @@ struct FormulairePlage: View {
             }
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 GridRow {
-                    Text("Jour").foregroundStyle(.secondary)
+                    Text("Jour").foregroundStyle(Color.texteDiscret)
                     DatePicker("", selection: $jour, in: ...Date(), displayedComponents: .date).labelsHidden()
                 }
                 GridRow {
-                    Text("De").foregroundStyle(.secondary)
+                    Text("De").foregroundStyle(Color.texteDiscret)
                     HStack(spacing: 8) {
                         DatePicker("", selection: $debut, displayedComponents: .hourAndMinute).labelsHidden()
-                        Text("à").foregroundStyle(.secondary)
+                        Text("à").foregroundStyle(Color.texteDiscret)
                         DatePicker("", selection: $fin, displayedComponents: .hourAndMinute).labelsHidden()
-                        Text(b > a ? duree(b.timeIntervalSince(a)) : "").foregroundStyle(.secondary).monospacedDigit()
+                        Text(b > a ? duree(b.timeIntervalSince(a)) : "").foregroundStyle(Color.texteDiscret).monospacedDigit()
                     }
                 }
                 GridRow {
-                    Text("Note").foregroundStyle(.secondary)
+                    Text("Note").foregroundStyle(Color.texteDiscret)
                     TextField(L("Réunion, rendez-vous, croquis…"), text: $note).textFieldStyle(.roundedBorder)
                 }
             }
-            .font(.system(size: 12))
+            .font(.system(size: 13))
             HStack {
                 Spacer()
                 Button(L("Annuler"), action: fini).keyboardShortcut(.cancelAction)
@@ -782,7 +831,7 @@ struct FormulairePlage: View {
                 .disabled(projet == nil || b <= a)
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(width: 320)
     }
 }
@@ -803,23 +852,23 @@ struct SectionPlages: View {
                         HStack(spacing: 10) {
                             Text(Date(timeIntervalSince1970: p.debut).formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
                                 .frame(width: 96, alignment: .leading)
-                            Text("\(heureMinute(p.debut))–\(heureMinute(p.fin))").monospacedDigit().foregroundStyle(.secondary)
-                            Text(p.note.isEmpty ? (cles.count > 1 ? (p.nom ?? p.cle) : "") : p.note).lineLimit(1).foregroundStyle(.secondary)
+                            Text("\(heureMinute(p.debut))–\(heureMinute(p.fin))").monospacedDigit().foregroundStyle(Color.texteDiscret)
+                            Text(p.note.isEmpty ? (cles.count > 1 ? (p.nom ?? p.cle) : "") : p.note).lineLimit(1).foregroundStyle(Color.texteDiscret)
                             Spacer()
                             if survol {
                                 Button { Task { await etat.retirerPlage(p) } } label: { Image(systemName: "xmark.circle.fill") }
-                                    .buttonStyle(.plain).foregroundStyle(.tertiary).help(L("Retirer la plage"))
+                                    .buttonStyle(StyleLien(couleur: Color.texteDiscret)).help(L("Retirer la plage"))
                             }
                             Text(duree(p.fin - p.debut)).monospacedDigit()
                         }
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .padding(.vertical, 2)
                     }
                 }
                 Button { ouvert = true } label: {
-                    Label(L("Nouvelle plage"), systemImage: "plus").font(.system(size: 12, weight: .medium))
+                    Label(L("Nouvelle plage"), systemImage: "plus").font(.system(size: 13, weight: .medium))
                 }
-                .buttonStyle(.plain).foregroundStyle(Color.lien)
+                .buttonStyle(StyleLien())
                 .padding(.top, liste.isEmpty ? 0 : 4)
                 .popover(isPresented: $ouvert, arrowEdge: .bottom) {
                     FormulairePlage(cle: cleDefaut) { ouvert = false }.environmentObject(etat)

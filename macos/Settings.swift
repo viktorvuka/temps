@@ -43,13 +43,63 @@ struct LigneAcces: View {
     let titre: String
     let ok: Bool?
     let volet: Volet
+    var panneau = false
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: ok == true ? "checkmark.circle.fill" : ok == false ? "exclamationmark.triangle.fill" : "circle.dashed")
-                .foregroundStyle(ok == true ? AnyShapeStyle(Color.green) : ok == false ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tertiary))
+                .foregroundStyle(ok == true ? AnyShapeStyle(Color.green) : ok == false ? AnyShapeStyle(Color.signal) : AnyShapeStyle(Color.texteDiscret))
             Text(L(titre))
             Spacer()
-            Button(ok == false ? L("Autoriser…") : L("Ouvrir…")) { volet.ouvrir() }
+            if panneau {
+                if ok != true {
+                    Button(L("Autoriser…")) { volet.ouvrir() }.buttonStyle(StylePastille())
+                }
+            } else {
+                Button(ok == false ? L("Autoriser…") : L("Ouvrir…")) { volet.ouvrir() }
+            }
+        }
+        .padding(.vertical, panneau ? 4 : 0).padding(.horizontal, panneau ? 8 : 0)
+        .frame(minHeight: panneau ? 28 : nil)
+    }
+}
+
+/// L'état des trois accès, relu toutes les 3 s tant que la vue est là (et au retour de Réglages Système).
+struct SuiviAcces<Contenu: View>: View {
+    @EnvironmentObject var etat: Etat
+    @ViewBuilder let contenu: (_ disque: Bool?, _ accessibilite: Bool, _ automatisation: Bool?) -> Contenu
+    @State private var acces: EtatAcces?
+    @State private var accessibilite = AXIsProcessTrusted()
+    @State private var auto: [String: Bool] = [:]
+    var body: some View {
+        contenu(acces?.disque, accessibilite || acces?.titres == true,
+                auto.values.contains(false) ? false : (auto.values.contains(true) ? true : nil))
+            .task {
+                while !Task.isCancelled {
+                    acces = await etat.lireAcces()
+                    accessibilite = AXIsProcessTrusted()
+                    auto = await Task.detached {
+                        Dictionary(uniqueKeysWithValues: appsAutomatisees.compactMap { a in automatisation(a.id).map { (a.id, $0) } })
+                    }.value
+                    try? await Task.sleep(for: .seconds(3))
+                }
+            }
+    }
+}
+
+/// En tête du panneau, tant qu'un accès manque : les trois lignes, un bouton pour chaque volet ; elles passent au vert.
+struct CarteAcces: View {
+    var body: some View {
+        SuiviAcces { disque, accessibilite, automatisation in
+            if disque == false || !accessibilite || automatisation == false || CommandLine.arguments.contains("--acces") {
+                Carte {
+                    LigneAcces(titre: "Accès complet au disque", ok: disque, volet: .disque, panneau: true)
+                    LigneAcces(titre: "Accessibilité", ok: accessibilite, volet: .accessibilite, panneau: true)
+                    LigneAcces(titre: "Automatisation", ok: automatisation, volet: .automatisation, panneau: true)
+                }
+                .font(.corps)
+                .overlay(RoundedRectangle(cornerRadius: Rayon.grand).strokeBorder(Color.bordSignal))
+                .transition(.opacity)
+            }
         }
     }
 }
@@ -69,13 +119,13 @@ struct Reglages: View {
                     Text(r.message).lineLimit(1)
                     Spacer()
                     Button("Annuler") { Task { await etat.annuler() } }
-                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.lien)
+                        .buttonStyle(StyleLien()).fontWeight(.semibold)
                 }
-                .font(.system(size: 12))
-                .padding(.horizontal, 14).padding(.vertical, 10)
+                .font(.system(size: 13))
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(maxWidth: 420)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.12)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.appui))
                 .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
                 .padding(16)
             }
@@ -87,18 +137,17 @@ struct Reglages: View {
 
 struct ReglagesGeneral: View {
     @EnvironmentObject var etat: Etat
-    @State private var acces: EtatAcces?
-    @State private var accessibilite = AXIsProcessTrusted()
-    @State private var auto: [String: Bool] = [:]
     @AppStorage("rappelVendredi") private var rappel = true
     @AppStorage("recapLundi") private var recap = true
 
     var body: some View {
         Form {
             Section("Accès") {
-                LigneAcces(titre: "Accès complet au disque", ok: acces?.disque, volet: .disque)
-                LigneAcces(titre: "Accessibilité", ok: accessibilite || acces?.titres == true, volet: .accessibilite)
-                LigneAcces(titre: "Automatisation", ok: auto.values.contains(false) ? false : (auto.values.contains(true) ? true : nil), volet: .automatisation)
+                SuiviAcces { disque, accessibilite, automatisation in
+                    LigneAcces(titre: "Accès complet au disque", ok: disque, volet: .disque)
+                    LigneAcces(titre: "Accessibilité", ok: accessibilite, volet: .accessibilite)
+                    LigneAcces(titre: "Automatisation", ok: automatisation, volet: .automatisation)
+                }
             }
             Section("Général") {
                 Toggle("Ouvrir au démarrage", isOn: Binding(get: { etat.auDemarrage }, set: { etat.basculerDemarrage($0) }))
@@ -118,16 +167,6 @@ struct ReglagesGeneral: View {
             }
         }
         .formStyle(.grouped)
-        .task {
-            while !Task.isCancelled {
-                acces = await etat.lireAcces()
-                accessibilite = AXIsProcessTrusted()
-                auto = await Task.detached {
-                    Dictionary(uniqueKeysWithValues: appsAutomatisees.compactMap { a in automatisation(a.id).map { (a.id, $0) } })
-                }.value
-                try? await Task.sleep(for: .seconds(3))
-            }
-        }
     }
 }
 
@@ -238,6 +277,7 @@ struct Regle: Decodable, Identifiable {
         case "plages": L("Plage")
         case "forcer": L("Forcé")
         case "fusions": L("Fusion")
+        case "partages": L("Partagée")
         default: L("Texte")
         }
     }
@@ -277,7 +317,7 @@ struct LigneRegle: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(r.libelleSection).font(.system(size: 11)).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
+            Text(r.libelleSection).font(.system(size: 11)).foregroundStyle(Color.texteDiscret).frame(width: 52, alignment: .leading)
             if edite {
                 TextField("", text: $texte)
                     .textFieldStyle(.roundedBorder).focused($focus)
@@ -294,15 +334,16 @@ struct LigneRegle: View {
                 Text(r.motif).lineLimit(1)
                 if r.section == "apps" {
                     Text(Detail(appareil: "Mac", app: r.motif, contexte: "", secondes: 0).nomApp)
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
                 }
             }
             Spacer()
             HStack(spacing: 12) {
+                if r.section != "partages" {
                 Button { choix = true } label: {
                     Label(L("Déplacer"), systemImage: "arrow.turn.up.right").labelStyle(.titleAndIcon)
                 }
-                .buttonStyle(.plain).foregroundStyle(Color.lien)
+                .buttonStyle(StyleLien())
                 .popover(isPresented: $choix, arrowEdge: .bottom) {
                     ChoixCategorie { cle in
                         choix = false
@@ -310,17 +351,19 @@ struct LigneRegle: View {
                     }
                     .environmentObject(etat)
                 }
-                Button { Task { await etat.retirer(r.section, r.motif, ancien: r.valeur, message: L("Règle retirée")) } } label: {
-                    Image(systemName: "trash").foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                Button { Task { await etat.retirer(r.section, r.motif, ancien: r.valeur, message: L("Règle retirée")) } } label: {
+                    Image(systemName: "trash").foregroundStyle(Color.texteDiscret).padding(4)
+                }
+                .accessibilityLabel(L("Retirer la règle"))
+                .buttonStyle(StyleTouche(forme: .rectangle(Rayon.petit)))
             }
-            .font(.system(size: 12))
+            .font(.system(size: 13))
             .opacity(survol || choix ? 1 : 0)
         }
         .font(.system(size: 13))
         .padding(.vertical, 4).padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(survol || choix ? 0.05 : 0)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(survol || choix ? 0.05 : 0)))
         .onHover { survol = $0 }
     }
 }
@@ -344,7 +387,7 @@ struct ChoixCategorie: View {
             }
             .frame(height: 260)
         }
-        .padding(10)
+        .padding(12)
         .frame(width: 280)
     }
 }

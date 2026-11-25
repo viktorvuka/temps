@@ -11,6 +11,7 @@ struct Reponse: Decodable {
     let categories: [Categorie]?
     let travail: Double?
     let histogramme: [Jour]?
+    let mois: [Jour]?
     let reperes: [Repere]?
     let couleurs: [String: String]?
     let couleurs_posees: [String]?
@@ -34,7 +35,8 @@ extension Color {
     /// Liens et boutons texte : la couleur d'accent, éclaircie en mode sombre pour rester lisible sur le fond.
     static let lien = Color(nsColor: NSColor(name: nil) { a in
         let c = NSColor.controlAccentColor
-        guard a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua else { return c }
+        // lisible des deux côtés (AA) : éclairci en sombre, assombri en clair
+        guard a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua else { return c.blended(withFraction: 0.25, of: .black) ?? c }
         return c.blended(withFraction: 0.25, of: .white) ?? c
     })
 }
@@ -210,7 +212,7 @@ struct BarreEmpilee: View {
                     .frame(height: Swift.max(1, hauteur * (parts[s] ?? 0) / max - 1))
             }
         }
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 2.5, topTrailingRadius: 2.5))
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 4, topTrailingRadius: 4))
     }
 }
 
@@ -220,7 +222,7 @@ func formatDate(_ gabarit: String) -> DateFormatter {
     f.setLocalizedDateFormatFromTemplate(gabarit)
     return f
 }
-let formatJourLong = formatDate("EEEEdMMMM"), formatJourCourt = formatDate("EEEdMMM")
+let formatJourLong = formatDate("EEEEdMMMM"), formatJourCourt = formatDate("EEEdMMM"), formatHeureCourte = formatDate("jm")
 
 @MainActor func detailParts(_ j: Jour) -> String {
     let f = formatJourLong
@@ -242,7 +244,15 @@ struct Detail: Decodable, Identifiable {
     let contexte: String
     let secondes: Double
     var suggestion: String? = nil
-    var id: String { appareil + "|" + app + "|" + contexte }
+    var partage: Bool? = nil
+    var raison: String? = nil
+    /// La catégorie où la ligne est rangée aujourd'hui (nil ou Non classé : à classer).
+    var dans: String? = nil
+    /// Un créneau du ruban [début, fin] : il devient la première portée.
+    var creneau: [Double]? = nil
+    var id: String { appareil + "|" + app + "|" + contexte + (creneau.map { "|\($0[0])" } ?? "") }
+    /// Déjà rangée ailleurs : une règle de texte ne suffirait pas face à un dossier, on force.
+    var dejaRangee: Bool { dans != nil && dans != "Non classé" && dans != "" }
 
     /// Nom affiché de l'app : celui du Mac s'il la connaît, sinon la fin de l'identifiant.
     var nomApp: String { app == "manuel" ? L("Saisie à la main") : Apps.partage.nom(app) }
@@ -386,7 +396,7 @@ extension Detail {
     var portees: [Portee] {
         var p: [Portee] = []
         let ctx = contexte
-        if app.isEmpty { return p }
+        if app.isEmpty && creneau == nil { return p }
         if navigateurs.contains(app), let local = ctx.components(separatedBy: " — ").last,
            local.hasPrefix("localhost") || local.hasPrefix("127.0.0.1") || local.contains(".localhost") || local.contains(".test") {
             // serveur de développement : « Titre — localhost:8463 »
@@ -415,8 +425,30 @@ extension Detail {
             let quoi = app == "com.anthropic.claudefordesktop" ? "Cette session" : "Ce titre"
             p.append(Portee(libelle: L(quoi), section: "titres", motif: ctx))
         }
-        p.append(Portee(libelle: L("Toute l'app %@", nomApp), section: "apps", motif: app))
+        if dejaRangee {
+            p = p.map { Portee(libelle: $0.libelle, section: $0.section == "titres" ? "forcer" : $0.section, motif: $0.motif) }
+        } else if !app.isEmpty {
+            p.append(Portee(libelle: L("Toute l'app %@", nomApp), section: "apps", motif: app))
+        }
+        if let c = creneau, c.count == 2 {
+            let h = "\(formatHeureCourte.string(from: Date(timeIntervalSince1970: c[0])))–\(formatHeureCourte.string(from: Date(timeIntervalSince1970: c[1])))"
+            p.insert(Portee(libelle: L("Ce créneau : %@", h), section: "creneau", motif: "\(c[0])|\(c[1])"), at: 0)
+        }
+        if !ctx.isEmpty {
+            // sans règle : seulement cette source, sur la période affichée
+            let fois = Portee(libelle: L("Juste cette fois"), section: "une-fois", motif: ctx)
+            if partage == true && creneau == nil { p.insert(fois, at: 0) } else { p.append(fois) }
+        }
         return p
+    }
+
+    /// Le motif qui marque la source comme partagée : le domaine d'un site, sinon le contexte.
+    var motifPartage: String {
+        if navigateurs.contains(app) || app.hasPrefix("com.apple.Safari.WebApp") {
+            let morceaux = contexte.split(separator: ".")
+            if morceaux.count > 2, !contexte.contains(" — ") { return morceaux.suffix(2).joined(separator: ".") }
+        }
+        return contexte
     }
 }
 
@@ -528,7 +560,11 @@ final class Moteur {
 final class Etat: ObservableObject {
     @Published var jours = 0 { didSet { jourChoisi = nil; Task { await charger() } } }
     @Published var jourChoisi: Double? = nil
+    /// Les lignes dépliées du panneau et de la fenêtre (clés « p:… », « f:… »).
+    @Published var deplies: Set<String> = []
     @Published var histogramme: [Jour] = []
+    /// Les 30 derniers jours, pour le calendrier du panneau.
+    @Published var mois: [Jour] = []
     @Published var reperes: [Repere] = []
     // Fenêtre
     @Published var fenetreOuverte = false
@@ -654,6 +690,7 @@ final class Etat: ObservableObject {
             lissage = (r.lissage ?? 10) > 0
             if let d = r.domaines { domaines = d }
             histogramme = r.histogramme ?? []
+            mois = r.mois ?? []
             reperes = r.reperes ?? []
             aujourdhui = jours == 0 && jourChoisi == nil ? travail : histogramme.last?.travail
         } catch {
@@ -662,6 +699,24 @@ final class Etat: ObservableObject {
     }
 
     /// Un clic sur une barre de l'histogramme affiche ce jour-là ; sur aujourd'hui, revient à la vue du jour.
+    /// Le jour d'avant ou d'après dans le panneau ; on ne dépasse pas aujourd'hui.
+    func decalerJour(_ n: Int) {
+        let cal = Calendar.current, aujourdhui = cal.startOfDay(for: Date())
+        let base = jourChoisi.map { Date(timeIntervalSince1970: $0) } ?? aujourdhui
+        guard let j = cal.date(byAdding: .day, value: n, to: cal.startOfDay(for: base)) else { return }
+        if jours != 0 { jours = 0 }
+        jourChoisi = j >= aujourdhui ? nil : j.timeIntervalSince1970
+        Task { await charger() }
+    }
+
+    /// Depuis l'histogramme du panneau : ouvrir ce jour-là (ruban), en revenant au mode jour.
+    func ouvrirJour(_ j: Jour) {
+        let auj = j.id == histogramme.last?.id
+        if jours != 0 { jours = 0 }
+        jourChoisi = auj ? nil : j.jour
+        Task { await charger() }
+    }
+
     func choisirJour(_ j: Jour) {
         if j.id == histogramme.last?.id {
             jourChoisi = nil
@@ -677,6 +732,7 @@ final class Etat: ObservableObject {
         Task { @MainActor in
             if CommandLine.arguments.contains("--clair") { NSApp.appearance = NSAppearance(named: .aqua) }
             if CommandLine.arguments.contains("--semaine") { etat.jours = 6 }
+            if CommandLine.arguments.contains("--mois") { etat.jours = 29 }
             await etat.charger()
             if CommandLine.arguments.contains("--hier"), etat.histogramme.count > 1 {
                 etat.jourChoisi = etat.histogramme[etat.histogramme.count - 2].jour
@@ -689,6 +745,15 @@ final class Etat: ObservableObject {
                 if CommandLine.arguments.contains("--classer"),
                    let d = etat.familles.first(where: { $0.nom == nonClasse })?.postes.first?.detail.first(where: { !$0.portees.isEmpty }) {
                     etat.classerFenetre = d
+                }
+                // --classer-dans=<nom> : l'écran Classer sur la première ligne d'une catégorie déjà rangée
+                if let a = CommandLine.arguments.first(where: { $0.hasPrefix("--classer-dans=") }) {
+                    let nom = String(a.dropFirst(15))
+                    if let poste = etat.familles.flatMap(\.postes).first(where: { $0.nom == nom || $0.cle == nom }),
+                       var d = poste.detail.first(where: { !$0.contexte.isEmpty && $0.classable }) {
+                        d.dans = poste.cle
+                        etat.classerFenetre = d
+                    }
                 }
                 let plage = nom == "plage"
                 let vue = plage ? NSHostingView(rootView: AnyView(FormulairePlage {}.environmentObject(etat)))
@@ -707,6 +772,12 @@ final class Etat: ObservableObject {
             }
             if CommandLine.arguments.contains("--classer"),
                let d = etat.familles.first(where: { $0.nom == nonClasse })?.postes.first?.detail.first(where: { !$0.portees.isEmpty }) {
+                etat.ecran = .classer(d)
+            }
+            if let a = CommandLine.arguments.first(where: { $0.hasPrefix("--classer-dans=") }),
+               let poste = etat.familles.flatMap(\.postes).first(where: { $0.nom == String(a.dropFirst(15)) || $0.cle == String(a.dropFirst(15)) }),
+               var d = poste.detail.first(where: { !$0.contexte.isEmpty && $0.classable }) {
+                d.dans = poste.cle
                 etat.ecran = .classer(d)
             }
             let vue = NSHostingView(rootView: Fenetre().environmentObject(etat))
@@ -741,12 +812,12 @@ final class Etat: ObservableObject {
             if let e = r.erreur { signaler(e); return }
             let (c, k) = annulation(r)
             let fait = Rangement(message: message, chemin: c, corps: k)
-            withAnimation(.snappy) { rangement = fait }
+            withAnimation(mouvement(.snappy)) { rangement = fait }
             await rechargerTout()
             // la barre reste 8 s, sans retenir ce qui suit (une seconde écriture, une liste à relire)
             Task {
                 try? await Task.sleep(for: .seconds(8))
-                if rangement?.id == fait.id { withAnimation(.snappy) { rangement = nil } }
+                if rangement?.id == fait.id { withAnimation(mouvement(.snappy)) { rangement = nil } }
             }
         } catch {
             signaler(L("Modification non écrite : serveur injoignable sur le port 8230."))
@@ -783,15 +854,53 @@ final class Etat: ObservableObject {
 
     func classer(_ p: Portee, dans cle: String, enFile: Bool = false) async {
         let nom = categories.first { $0.cle == cle }?.nom ?? cle
+        let (debut, fin) = bornesUneFois(dansFenetre: enFile || classerFenetre != nil)
         if enFile, let d = aClasserCourant {
             rattrapage?.faits += 1
             rattrapage?.ecartes.insert(d.id)
             suivant()
         } else {
-            withAnimation(.snappy) { ecran = .tableau }
+            withAnimation(mouvement(.snappy)) { ecran = .tableau }
         }
         classerFenetre = nil
-        await poser(p.section, p.motif, cle, message: L("Rangé dans %@", nom))
+        if p.section == "creneau" {
+            let b = p.motif.split(separator: "|").compactMap { Double($0) }
+            if b.count == 2 {
+                await ajouterPlage(debut: Date(timeIntervalSince1970: b[0]), fin: Date(timeIntervalSince1970: b[1]),
+                                   cle: cle, note: "", force: true, message: L("Rangé dans %@", nom))
+            }
+        } else if p.section == "une-fois" {
+            await ajouterPlage(debut: debut, fin: fin, cle: cle, note: p.motif, motif: p.motif, message: L("Rangé dans %@", nom))
+        } else {
+            await poser(p.section, p.motif, cle, message: L("Rangé dans %@", nom))
+        }
+    }
+
+    /// La période d'où vient la ligne : celle de la fenêtre pour À classer, celle du panneau sinon.
+    func bornesUneFois(dansFenetre: Bool) -> (Date, Date) {
+        let cal = Calendar.current
+        if dansFenetre {
+            let (a, b) = bornesUnite
+            return (cal.startOfDay(for: a), cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: b))!)
+        }
+        if let j = jourChoisi {
+            let a = cal.startOfDay(for: Date(timeIntervalSince1970: j))
+            return (a, cal.date(byAdding: .day, value: 1, to: a)!)
+        }
+        return (depuis.map { cal.startOfDay(for: $0) } ?? cal.startOfDay(for: Date()), Date())
+    }
+
+    /// Marque une source comme partagée : plus de règle, elle suit le projet autour d'elle.
+    func marquerPartagee(_ d: Detail, enFile: Bool = false) async {
+        if enFile {
+            rattrapage?.faits += 1
+            rattrapage?.ecartes.insert(d.id)
+            suivant()
+        } else {
+            withAnimation(mouvement(.snappy)) { ecran = .tableau }
+        }
+        classerFenetre = nil
+        await poser("partages", d.motifPartage, true, message: L("Source partagée : %@", d.motifPartage))
     }
 
     /// Les lignes non classées de la période de la fenêtre, classables, de la plus longue à la plus courte
@@ -814,7 +923,7 @@ final class Etat: ObservableObject {
     /// La prochaine ligne de la file, ou rien quand elle est vide.
     func suivant() {
         let r = rattrapage ?? Rattrapage(total: aRattraper.count)
-        withAnimation(.snappy(duration: 0.18)) {
+        withAnimation(mouvement(.snappy(duration: 0.18))) {
             aClasserCourant = aRattraper.first { !r.ecartes.contains($0.id) }
         }
         if aClasserCourant == nil { rattrapage = nil }
@@ -875,7 +984,7 @@ final class Etat: ObservableObject {
     /// Accepte toutes les suggestions d'une liste, chacune avec sa première portée ; une seule annulation.
     func accepterSuggestions(_ details: [Detail]) async {
         let liste: [[String: Any]] = details.compactMap { d in
-            guard let s = d.suggestion, let p = d.portees.first else { return nil }
+            guard let s = d.suggestion, let p = d.portees.first(where: { $0.section != "une-fois" }) else { return nil }
             return ["section": p.section, "motif": p.motif, "valeur": s]
         }
         guard !liste.isEmpty else { return }
@@ -944,7 +1053,7 @@ final class Etat: ObservableObject {
 
     func annuler() async {
         guard let r = rangement else { return }
-        withAnimation(.snappy) { rangement = nil }
+        withAnimation(mouvement(.snappy)) { rangement = nil }
         _ = try? await envoyer(r.chemin, r.corps)
         await rechargerTout()
         if r.chemin.hasPrefix("manuel") { await chargerSaisies() }
@@ -969,13 +1078,13 @@ struct Barre: View {
     var body: some View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.07))
+                Capsule().fill(Color.fondPastille)
                 Capsule().fill(teinte.opacity(opacite))
                     .frame(width: max(3, g.size.width * min(1, part)))
             }
         }
         .frame(height: 4)
-        .animation(.easeOut(duration: 0.35), value: part)
+        .animation(mouvement(.easeOut(duration: 0.2)), value: part)
     }
 }
 
@@ -984,17 +1093,17 @@ struct Carte<Contenu: View>: View {
     @Environment(\.dansFenetre) private var dansFenetre
     var body: some View {
         VStack(alignment: .leading, spacing: 2) { contenu }
-            .padding(.vertical, 10).padding(.horizontal, 4)
+            .padding(.vertical, 12).padding(.horizontal, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 // dans la fenêtre translucide : une plaque de verre ; dans le panneau (déjà en verre) : un voile léger
                 if dansFenetre {
-                    RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.045))
+                    RoundedRectangle(cornerRadius: 12).fill(Color.voile)
                 } else {
-                    RoundedRectangle(cornerRadius: 11).fill(Color.primary.opacity(0.035))
+                    RoundedRectangle(cornerRadius: 12).fill(Color.voile)
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: dansFenetre ? 14 : 11).strokeBorder(Color.primary.opacity(dansFenetre ? 0.06 : 0.07)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(dansFenetre ? 0.06 : 0.07)))
     }
 }
 
@@ -1016,10 +1125,10 @@ struct Etiquette: View {
     var droite: String? = nil
     var body: some View {
         HStack(spacing: 6) {
-            Text(L(texte)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            if let c = compte { Text("\(c)").font(.system(size: 11)).foregroundStyle(.tertiary) }
+            Text(L(texte)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.texteDiscret)
+            if let c = compte { Text("\(c)").font(.system(size: 11)).foregroundStyle(Color.texteDiscret) }
             Spacer()
-            if let d = droite { Text(d).font(.system(size: 11)).monospacedDigit().foregroundStyle(.tertiary) }
+            if let d = droite { Text(d).font(.system(size: 11)).monospacedDigit().foregroundStyle(Color.texteDiscret) }
         }
         .padding(.horizontal, 8).padding(.bottom, 2)
     }
@@ -1030,6 +1139,9 @@ struct Etiquette: View {
 /// Les 7 derniers jours. Un clic affiche le jour ; la barre choisie est pleine.
 struct Histogramme: View {
     @EnvironmentObject var etat: Etat
+    var hauteur: CGFloat = 38
+    /// Un clic sur un jour ; par défaut, le choisir.
+    var ouvrir: ((Jour) -> Void)? = nil
     static let initiales = Calendar.current.veryShortWeekdaySymbols
 
     func choisi(_ j: Jour) -> Bool {
@@ -1045,24 +1157,28 @@ struct Histogramme: View {
                 let date = Date(timeIntervalSince1970: j.jour)
                 let jour = Calendar.current.component(.weekday, from: date) - 1
                 let aujourdhui = j.id == etat.histogramme.last?.id
+                Button { if let o = ouvrir { o(j) } else { withAnimation(mouvement(.snappy(duration: 0.2))) { etat.choisirJour(j) } } } label: {
                 VStack(spacing: 3) {
                     ZStack(alignment: .bottom) {
-                        RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.05)).frame(height: 38)
-                        BarreEmpilee(parts: j.parts ?? [:], hauteur: 38, max: max)
+                        RoundedRectangle(cornerRadius: 4).fill(Color.voile).frame(height: hauteur)
+                        BarreEmpilee(parts: j.parts ?? [:], hauteur: hauteur, max: max)
                             .opacity(!unJour || choisi(j) ? 1 : 0.35)
                     }
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(choisi(j) && unJour ? Color.primary.opacity(0.5) : .clear, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(choisi(j) && unJour ? Color.primary.opacity(0.5) : .clear, lineWidth: 1))
                     Text(Histogramme.initiales[jour])
                         .font(.system(size: 10, weight: aujourdhui || choisi(j) ? .semibold : .regular))
-                        .foregroundStyle(aujourdhui ? AnyShapeStyle(Color.lien) : (choisi(j) ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)))
+                        .foregroundStyle(aujourdhui ? AnyShapeStyle(Color.lien) : (choisi(j) ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.texteDiscret)))
                 }
                 .frame(maxWidth: .infinity)
+                .padding(2)
                 .contentShape(Rectangle())
-                .onTapGesture { withAnimation(.snappy(duration: 0.2)) { etat.choisirJour(j) } }
+                }
+                .buttonStyle(StyleTouche(forme: .rectangle(Rayon.petit)))
                 .help(detailParts(j))
+                .accessibilityLabel(detailParts(j))
             }
         }
-        .animation(.easeOut(duration: 0.3), value: etat.histogramme.map(\.travail))
+        .animation(mouvement(.easeOut(duration: 0.2)), value: etat.histogramme.map(\.travail))
     }
 }
 
@@ -1076,7 +1192,7 @@ struct LigneRepere: View {
                 Text(r.nom).lineLimit(1)
                 Spacer()
                 Text("\(duree(r.secondes)) / \(duree(cible))").monospacedDigit()
-                    .foregroundStyle(depasse ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(depasse ? AnyShapeStyle(Color.signal) : AnyShapeStyle(Color.texteDiscret))
             }
             Barre(part: r.secondes / cible, teinte: depasse ? .orange : .primary, opacite: r.plafond == nil ? 0.72 : 0.4)
         }
@@ -1089,6 +1205,7 @@ struct LigneDetail: View {
     @EnvironmentObject var etat: Etat
     @Environment(\.dansFenetre) private var dansFenetre
     let d: Detail
+    var dans: String? = nil
     @State private var survol = false
 
     var classable: Bool { d.classable }
@@ -1096,29 +1213,31 @@ struct LigneDetail: View {
     var body: some View {
         HStack(spacing: 6) {
             if d.appareil != "Mac" {
-                Image(systemName: iconeAppareil(d.appareil)).font(.system(size: 10)).foregroundStyle(.tertiary)
+                Image(systemName: iconeAppareil(d.appareil)).font(.system(size: 10)).foregroundStyle(Color.texteDiscret)
             }
             Text(d.contexte.isEmpty ? d.nomApp : d.contexte).lineLimit(1).truncationMode(.middle)
             if !d.contexte.isEmpty && !d.app.isEmpty {
-                Text(d.nomApp).lineLimit(1).foregroundStyle(.tertiary).layoutPriority(-1)
+                Text(d.nomApp).lineLimit(1).foregroundStyle(Color.texteDiscret).layoutPriority(-1)
             }
             Spacer(minLength: 8)
             if survol && classable {
                 Text("Classer").font(.system(size: 11, weight: .medium)).foregroundStyle(Color.lien)
             } else if d.suggestion != nil {
-                Image(systemName: "sparkle").font(.system(size: 9)).foregroundStyle(Color.lien.opacity(0.8))
-                Text(duree(d.secondes)).monospacedDigit().foregroundStyle(.tertiary)
+                Image(systemName: "sparkle").font(.system(size: 10)).foregroundStyle(Color.lien.opacity(0.8))
+                Text(duree(d.secondes)).monospacedDigit().foregroundStyle(Color.texteDiscret)
             } else {
-                Text(duree(d.secondes)).monospacedDigit().foregroundStyle(.tertiary)
+                Text(duree(d.secondes)).monospacedDigit().foregroundStyle(Color.texteDiscret)
             }
         }
-        .padding(.vertical, 2).padding(.horizontal, 5)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(survol && classable ? 0.07 : 0)))
+        .padding(.vertical, 2).padding(.horizontal, 4)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(survol && classable ? 0.07 : 0)))
         .contentShape(Rectangle())
         .onHover { survol = $0 }
         .onTapGesture {
             guard classable else { return }
-            if dansFenetre { etat.classerFenetre = d } else { withAnimation(.snappy(duration: 0.22)) { etat.ecran = .classer(d) } }
+            var x = d
+            x.dans = dans
+            if dansFenetre { etat.classerFenetre = x } else { withAnimation(mouvement(.snappy(duration: 0.2))) { etat.ecran = .classer(x) } }
         }
         .help(d.suggestion.map { L("Suggestion : %@", $0) } ?? (d.contexte.isEmpty ? d.app : d.contexte))
     }
@@ -1178,21 +1297,33 @@ struct LignePoste: View {
     var affiche: String? = nil
     var pastille: Color? = nil
     @EnvironmentObject var etat: Etat
-    @State private var ouvert: Bool
     @State private var survol = false
-    @State private var tout = false
     @Environment(\.dansFenetre) private var dansFenetre
+
+    /// Déplié ou non, et « tout afficher » : gardés dans l'état, pour les retrouver au retour de Classer.
+    var cleDepli: String { (dansFenetre ? "f:" : "p:") + poste.cle }
+    var ouvert: Bool {
+        get { etat.deplies.contains(cleDepli) || CommandLine.arguments.contains("--deplier=\(poste.nom)") }
+        nonmutating set { if newValue { etat.deplies.insert(cleDepli) } else { etat.deplies.remove(cleDepli) } }
+    }
+    var tout: Bool {
+        get { etat.deplies.contains("tout:" + cleDepli) }
+        nonmutating set { if newValue { etat.deplies.insert("tout:" + cleDepli) } else { etat.deplies.remove("tout:" + cleDepli) } }
+    }
 
     var renommable: Bool { ![nonClasse, "autres", "hors"].contains(poste.cle) }
 
-    init(poste: Poste, max: Double, teinte: Color = .primary, discret: Bool = false, affiche: String? = nil, pastille: Color? = nil) {
+    /// La barre à la teinte d'une série (le nom, lui, reste en couleur de texte).
+    var barre: Color? = nil
+
+    init(poste: Poste, max: Double, teinte: Color = .primary, discret: Bool = false, affiche: String? = nil, pastille: Color? = nil, barre: Color? = nil) {
+        self.barre = barre
         self.poste = poste
         self.max = max
         self.teinte = teinte
         self.discret = discret
         self.affiche = affiche
         self.pastille = pastille
-        _ouvert = State(initialValue: CommandLine.arguments.contains("--deplier=\(poste.nom)"))
     }
 
     var body: some View {
@@ -1200,26 +1331,26 @@ struct LignePoste: View {
             HStack(spacing: 5) {
                 if let p = pastille { Circle().fill(p).frame(width: 7, height: 7) }
                 NomModifiable(cle: poste.cle, nom: poste.nom, affiche: affiche ?? (renommable ? nil : L(poste.nom)), actif: renommable,
-                              style: teinte == .primary ? AnyShapeStyle(discret ? .secondary : .primary) : AnyShapeStyle(teinte))
+                              style: teinte == .primary ? AnyShapeStyle(discret ? Color.texteDiscret : Color.primary) : AnyShapeStyle(teinte))
                 if !poste.detail.isEmpty {
-                    Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.texteDiscret)
                         .rotationEffect(.degrees(ouvert ? 90 : 0))
                 }
                 Spacer()
-                Text(duree(poste.secondes)).monospacedDigit().foregroundStyle(.secondary)
+                Text(duree(poste.secondes)).monospacedDigit().foregroundStyle(Color.texteDiscret)
             }
-            Barre(part: poste.secondes / max, teinte: teinte, opacite: teinte == .primary ? (discret ? 0.35 : 0.72) : 0.85)
+            Barre(part: poste.secondes / max, teinte: barre ?? teinte, opacite: barre != nil ? 0.85 : teinte == .primary ? (discret ? 0.35 : 0.72) : 0.85)
         }
-        .font(.system(size: discret ? 12 : 13))
-        .padding(.vertical, discret ? 4 : 5).padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(survol && !poste.detail.isEmpty ? 0.06 : 0)))
+        .font(.system(size: 13))
+        .padding(.vertical, 4).padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(survol && !poste.detail.isEmpty ? 0.06 : 0)))
         .contentShape(Rectangle())
         .onHover { survol = $0 }
-        .onTapGesture { withAnimation(.easeOut(duration: 0.16)) { ouvert.toggle() } }
+        .onTapGesture { withAnimation(mouvement(.easeOut(duration: 0.16))) { ouvert.toggle() } }
 
         if ouvert {
             VStack(spacing: 4) {
-                let suggerees = poste.detail.filter { $0.suggestion != nil && $0.classable }
+                let suggerees = poste.detail.filter { $0.suggestion != nil && $0.classable && $0.partage != true }
                 if poste.cle == nonClasse && suggerees.count > 1 {
                     LigneChoix(texte: L("Accepter les %d suggestions", suggerees.count), icone: "sparkle", mis_en_avant: true) {
                         Task { await etat.accepterSuggestions(suggerees) }
@@ -1228,20 +1359,20 @@ struct LignePoste: View {
                     .padding(.bottom, 2)
                 }
                 let limite = tout ? poste.detail.count : 12
-                ForEach(poste.detail.prefix(limite)) { LigneDetail(d: $0) }
+                ForEach(poste.detail.prefix(limite)) { LigneDetail(d: $0, dans: poste.cle) }
                 if poste.detail.count > 12 {
                     Button(tout ? L("Réduire") : L("Tout afficher (%d)", poste.detail.count)) {
-                        withAnimation(.easeOut(duration: 0.16)) { tout.toggle() }
+                        withAnimation(mouvement(.easeOut(duration: 0.16))) { tout.toggle() }
                     }
-                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(Color.lien)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 5).padding(.top, 2)
+                    .buttonStyle(StyleLien()).font(.system(size: 11, weight: .medium))
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).padding(.top, 2)
                 }
             }
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
+            .font(.system(size: 13))
+            .foregroundStyle(Color.texteDiscret)
             .padding(.leading, 12).padding(.vertical, 2)
-            .overlay(alignment: .leading) { Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1) }
-            .padding(.leading, 10).padding(.trailing, 8).padding(.bottom, 6)
+            .overlay(alignment: .leading) { Rectangle().fill(Color.survol).frame(width: 1) }
+            .padding(.leading, 12).padding(.trailing, 8).padding(.bottom, 8)
             .transition(.opacity)
         }
     }
@@ -1264,19 +1395,19 @@ struct ListeGroupee: View {
                 let total = g.items.reduce(0) { $0 + $1.secondes }
                 HStack(spacing: 5) {
                     if let p = pastille(g.items[0]) { Circle().fill(p).frame(width: 7, height: 7) }
-                    Text(groupe).font(.system(size: discret ? 12 : 13, weight: .semibold))
-                        .foregroundStyle(discret ? .secondary : .primary)
+                    Text(groupe).font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(discret ? Color.texteDiscret : Color.primary)
                     Spacer()
-                    Text(duree(total)).font(.system(size: discret ? 12 : 13)).monospacedDigit().foregroundStyle(.secondary)
+                    Text(duree(total)).font(.system(size: 13)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                 }
-                .padding(.horizontal, 8).padding(.top, 5).padding(.bottom, 1)
+                .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 1)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(g.items) { p in
                         LignePoste(poste: p, max: max, discret: true, affiche: feuille(p.nom),
                                    pastille: couleursChoisies[p.cle] != nil ? couleurSerie(p.cle) : nil)
                     }
                 }
-                .padding(.leading, 22)
+                .padding(.leading, 24)
             } else {
                 ForEach(g.items) { LignePoste(poste: $0, max: max, discret: discret, pastille: pastille($0)) }
             }
@@ -1286,15 +1417,84 @@ struct ListeGroupee: View {
 
 /// Le temps non classé, à part et en tête : c'est le seul endroit où il y a quelque chose à faire.
 struct CarteNonClasse: View {
+    @EnvironmentObject var etat: Etat
+    @Environment(\.dansFenetre) private var dansFenetre
     let poste: Poste
     let max: Double
     let classer: () -> Void
+
+    var premieres: [Detail] { Array(poste.detail.filter(\.classable).prefix(3)) }
+
     var body: some View {
         Carte {
-            LignePoste(poste: poste, max: max, teinte: .orange)
-            LigneChoix(texte: L("Classer une à une (%d)", poste.detail.count), icone: "list.bullet", action: classer)
+            HStack {
+                Circle().fill(Color.orange).frame(width: 8, height: 8)
+                Text(L(nonClasse)).foregroundStyle(Color.signal)
+                Spacer()
+                Text(duree(poste.secondes)).monospacedDigit().foregroundStyle(Color.signal)
+            }
+            .font(.corps)
+            .padding(.vertical, 4).padding(.horizontal, 8)
+            ForEach(Array(premieres.enumerated()), id: \.1.id) { i, d in
+                LigneSuggeree(d: d, premiere: i == 0)
+            }
+            if poste.detail.count > premieres.count || !dansFenetre {
+                Button(L("Classer une à une (%d)", poste.detail.count), action: classer)
+                    .buttonStyle(StyleLien()).font(.secondaire)
+                    .padding(.horizontal, 4).padding(.top, 2)
+            }
         }
-        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Color.orange.opacity(0.35)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.bordSignal))
+    }
+}
+
+/// Une source non classée : un clic ouvre Classer ; sa suggestion s'accepte sur place (↵ pour la première).
+struct LigneSuggeree: View {
+    @EnvironmentObject var etat: Etat
+    @Environment(\.dansFenetre) private var dansFenetre
+    let d: Detail
+    var premiere = false
+
+    /// « Dupont », et son domaine à part : jamais « Studio / Dupont ».
+    var nomSuggestion: (nom: String, domaine: String?)? {
+        guard let s = d.suggestion else { return nil }
+        let c = etat.categories.first { $0.cle == s }
+        let (dom, nom, _) = etat.placer(c?.nom ?? s, famille: c?.famille ?? projets)
+        let court = (c?.nom ?? s).hasPrefix(dom + " / ") ? String((c?.nom ?? s).dropFirst(dom.count + 3)) : (c?.nom ?? nom)
+        return (court, court == dom ? nil : dom)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if dansFenetre { etat.classerFenetre = d } else { withAnimation(mouvement(.snappy(duration: 0.18))) { etat.ecran = .classer(d) } }
+            } label: {
+                HStack {
+                    Text(d.contexte.isEmpty ? d.nomApp : d.contexte).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    Text(duree(d.secondes)).font(.secondaire).monospacedDigit().foregroundStyle(Color.texteDiscret)
+                }
+                .font(.corps)
+            }
+            .buttonStyle(StyleLigne())
+            if let s = d.suggestion, let nom = nomSuggestion, let p = d.portees.first {
+                let accepter = Button { Task { await etat.classer(p, dans: s) } } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.turn.down.right").font(.legende)
+                        Text(nom.nom).lineLimit(1)
+                        if let dom = nom.domaine { Text(dom).foregroundStyle(Color.texteDiscret).lineLimit(1) }
+                        Spacer(minLength: 8)
+                        if premiere { Image(systemName: "return").font(.legende).foregroundStyle(Color.texteDiscret) }
+                    }
+                    .font(.secondaire)
+                    .foregroundStyle(Color.lien)
+                    .padding(.leading, 12)
+                }
+                .buttonStyle(StyleLigne())
+                .help(d.raison ?? "")
+                if premiere { accepter.keyboardShortcut(.defaultAction) } else { accepter }
+            }
+        }
     }
 }
 
@@ -1303,10 +1503,10 @@ struct CarteNonClasse: View {
 struct BoutonRetour: View {
     @EnvironmentObject var etat: Etat
     var body: some View {
-        Button { etat.classerFenetre = nil; withAnimation(.snappy(duration: 0.22)) { etat.ecran = .tableau } } label: {
-            Label("Retour", systemImage: "chevron.left").font(.system(size: 12))
+        Button { etat.classerFenetre = nil; withAnimation(mouvement(.snappy(duration: 0.2))) { etat.ecran = .tableau } } label: {
+            Label("Retour", systemImage: "chevron.left").font(.system(size: 13))
         }
-        .buttonStyle(.plain).foregroundStyle(.secondary)
+        .buttonStyle(StyleLien(couleur: Color.texteDiscret))
         .keyboardShortcut(.cancelAction)
     }
 }
@@ -1323,17 +1523,134 @@ struct LigneChoix: View {
             if let i = icone { Image(systemName: i).font(.system(size: 10, weight: .semibold)) }
             Text(texte).lineLimit(1)
             Spacer()
-            if survol { Image(systemName: "return").font(.system(size: 10)).foregroundStyle(.tertiary) }
+            if survol { Image(systemName: "return").font(.system(size: 10)).foregroundStyle(Color.texteDiscret) }
         }
         .font(.system(size: 13))
         .foregroundStyle(icone == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.lien))
         .padding(.vertical, 4).padding(.horizontal, 8)
         .padding(.leading, retrait ? 12 : 0)
-        .background(RoundedRectangle(cornerRadius: 6).fill(
+        .background(RoundedRectangle(cornerRadius: 8).fill(
             mis_en_avant ? Color.accentColor.opacity(survol ? 0.22 : 0.14) : Color.primary.opacity(survol ? 0.08 : 0)))
         .contentShape(Rectangle())
         .onHover { survol = $0 }
         .onTapGesture(perform: action)
+    }
+}
+
+/// Des étiquettes qui passent à la ligne quand la place manque.
+struct Rangs: Layout {
+    var espace: CGFloat = 6
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let (_, taille) = placer(largeur: proposal.width ?? .infinity, subviews)
+        return taille
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (points, _) = placer(largeur: bounds.width, subviews)
+        for (v, pt) in zip(subviews, points) {
+            v.place(at: CGPoint(x: bounds.minX + pt.x, y: bounds.minY + pt.y), proposal: .unspecified)
+        }
+    }
+    private func placer(largeur: CGFloat, _ subviews: Subviews) -> ([CGPoint], CGSize) {
+        var points: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, ligne: CGFloat = 0, large: CGFloat = 0
+        for v in subviews {
+            let t = v.sizeThatFits(.unspecified)
+            if x > 0, x + t.width > largeur { x = 0; y += ligne + espace; ligne = 0 }
+            points.append(CGPoint(x: x, y: y))
+            x += t.width + espace
+            ligne = max(ligne, t.height)
+            large = max(large, x - espace)
+        }
+        return (points, CGSize(width: min(large, largeur), height: y + ligne))
+    }
+}
+
+/// Le détail d'une ligne sur la période : titres de fenêtre, adresses ou chemins, moments (`GET /source`).
+struct InfosSource: Decodable {
+    struct Ligne: Decodable, Hashable { let texte: String; let secondes: Double }
+    struct Moment: Decodable, Hashable { let jour: Double; let debut: Double; let fin: Double }
+    let titres: [Ligne]
+    let adresses: [Ligne]
+    let moments: [Moment]
+}
+
+extension Etat {
+    func lireSource(_ d: Detail, dansFenetre: Bool) async -> InfosSource? {
+        var (debut, fin) = bornesUneFois(dansFenetre: dansFenetre)
+        if let c = d.creneau, c.count == 2 { (debut, fin) = (Date(timeIntervalSince1970: c[0]), Date(timeIntervalSince1970: c[1])) }
+        var u = URLComponents(string: "http://127.0.0.1:8230/source")!
+        u.queryItems = [.init(name: "appareil", value: d.appareil), .init(name: "app", value: d.app),
+                        .init(name: "contexte", value: d.contexte),
+                        .init(name: "debut", value: String(debut.timeIntervalSince1970)),
+                        .init(name: "fin", value: String(fin.timeIntervalSince1970))]
+        guard let url = u.url, let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        return try? JSONDecoder().decode(InfosSource.self, from: data)
+    }
+}
+
+struct VueInfosSource: View {
+    let infos: InfosSource?
+
+    /// Les moments regroupés par jour : « mar. 24 nov. » → « 10:40–10:50 · 16:05–16:15 ».
+    func parJour(_ m: [InfosSource.Moment]) -> [(String, String)] {
+        let jours = Dictionary(grouping: m, by: \.jour).sorted { $0.key > $1.key }
+        return jours.map { j, ms in
+            (formatJourCourt.string(from: Date(timeIntervalSince1970: ms[0].debut)),
+             ms.sorted { $0.debut < $1.debut }.map {
+                 "\(formatHeureCourte.string(from: Date(timeIntervalSince1970: $0.debut)))–\(formatHeureCourte.string(from: Date(timeIntervalSince1970: $0.fin)))"
+             }.joined(separator: " · "))
+        }
+    }
+
+    func etiquette(_ t: String) -> some View {
+        Text(L(t)).font(.system(size: 11)).foregroundStyle(Color.texteDiscret).gridColumnAlignment(.leading)
+    }
+
+    var body: some View {
+        if let i = infos {
+            let jours = parJour(i.moments)
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 9) {
+                if !i.titres.isEmpty {
+                    GridRow {
+                        etiquette("Fenêtres")
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(i.titres.prefix(4), id: \.self) { t in
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(t.texte).lineLimit(1).truncationMode(.middle)
+                                    Spacer(minLength: 8)
+                                    Text(duree(t.secondes)).monospacedDigit().foregroundStyle(Color.texteDiscret)
+                                }
+                            }
+                        }
+                    }
+                }
+                if let a = i.adresses.first {
+                    GridRow {
+                        etiquette(a.texte.hasPrefix("/") ? "Fichier" : "Adresse")
+                        Text(a.texte).lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(Color.texteDiscret).textSelection(.enabled)
+                            .help(i.adresses.map(\.texte).joined(separator: "\n"))
+                    }
+                }
+                if !jours.isEmpty {
+                    GridRow {
+                        etiquette("Quand")
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(jours.prefix(4), id: \.0) { j, h in
+                                (Text(j).foregroundStyle(.primary) + Text("  " + h).foregroundStyle(Color.texteDiscret))
+                                    .monospacedDigit().fixedSize(horizontal: false, vertical: true)
+                            }
+                            if jours.count > 4 {
+                                Text(L("et %d autres jours", jours.count - 4)).foregroundStyle(Color.texteDiscret)
+                            }
+                        }
+                    }
+                }
+            }
+            .font(.system(size: 13))
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -1342,6 +1659,7 @@ struct EcranClasser: View {
     @EnvironmentObject var etat: Etat
     let d: Detail
     var enFile = false
+    @State private var infos: InfosSource?
     @State private var portee: Portee?
     @State private var recherche = ""
     @FocusState private var focus: Bool
@@ -1371,11 +1689,11 @@ struct EcranClasser: View {
                 Spacer()
                 if enFile, let r = etat.rattrapage {
                     Text("\(min(r.ecartes.count + 1, r.total)) / \(r.total)").monospacedDigit()
-                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                        .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
                     Button { etat.passer() } label: {
-                        Label("Passer", systemImage: "chevron.right").labelStyle(.titleAndIcon).font(.system(size: 12))
+                        Label("Passer", systemImage: "chevron.right").labelStyle(.titleAndIcon).font(.system(size: 13))
                     }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .buttonStyle(StyleLien(couleur: Color.texteDiscret))
                     .keyboardShortcut(.rightArrow, modifiers: .command)
                     .help("⌘→")
                 }
@@ -1385,32 +1703,47 @@ struct EcranClasser: View {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(d.contexte.isEmpty ? d.nomApp : d.contexte)
-                        .font(.system(size: 15, weight: .semibold)).lineLimit(2)
+                        .font(.system(size: 17, weight: .semibold)).lineLimit(2)
                     Text([d.contexte.isEmpty ? nil : d.nomApp, d.appareil == "Mac" ? nil : d.appareil, duree(d.secondes)]
                             .compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
+                    if d.dejaRangee, let cle = d.dans {
+                        Label(L("Rangé dans %@", etat.categories.first { $0.cle == cle }?.nom ?? cle), systemImage: "folder")
+                            .font(.system(size: 11)).foregroundStyle(Color.texteDiscret).padding(.top, 4)
+                    }
                 }
-                HStack(spacing: 6) {
+                Rangs(espace: 6) {
                     ForEach(d.portees) { p in
                         let choisie = (portee ?? d.portees.first)?.id == p.id
-                        Text(p.libelle).lineLimit(1)
-                            .font(.system(size: 11, weight: choisie ? .semibold : .regular))
-                            .padding(.vertical, 4).padding(.horizontal, 9)
-                            .foregroundStyle(choisie ? AnyShapeStyle(Color.white) : AnyShapeStyle(.secondary))
-                            .background(Capsule().fill(choisie ? Color.accentColor : Color.primary.opacity(0.07)))
-                            .contentShape(Capsule())
-                            .onTapGesture { withAnimation(.snappy(duration: 0.15)) { portee = p } }
+                        Button { withAnimation(mouvement(.snappy(duration: 0.15))) { portee = p } } label: { Text(p.libelle).lineLimit(1) }
+                            .buttonStyle(StylePastille(choisie: choisie))
                             .help(p.motif)
                     }
                 }
+                if d.partage != true, !d.contexte.isEmpty {
+                    Button { Task { await etat.marquerPartagee(d, enFile: enFile) } } label: {
+                        Label(L("Source partagée entre projets"), systemImage: "arrow.triangle.branch").labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(StyleLien()).font(.system(size: 11))
+                    .help(d.motifPartage)
+                }
+                if d.app != "manuel" && !d.app.isEmpty {
+                    Divider().padding(.vertical, 2)
+                    VueInfosSource(infos: infos)
+                }
+            }
+            .task(id: d.id) {
+                guard d.app != "manuel" && !d.app.isEmpty else { return }
+                infos = nil
+                infos = await etat.lireSource(d, dansFenetre: enFile || etat.classerFenetre != nil)
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 11).fill(Color.primary.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.survol))
 
             // 2. Où le ranger
             VStack(alignment: .leading, spacing: 6) {
-                Text("Ranger dans").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                Text("Ranger dans").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.texteDiscret)
                     .padding(.horizontal, 2)
                 TextField("Chercher ou créer un projet", text: $recherche)
                     .textFieldStyle(.roundedBorder)
@@ -1421,8 +1754,12 @@ struct EcranClasser: View {
                     }
                 VStack(alignment: .leading, spacing: 1) {
                     if let s = suggeree, recherche.isEmpty {
-                        LigneChoix(texte: s.nom, icone: "sparkle", mis_en_avant: true) { choisir(s.cle) }
-                            .padding(.bottom, 4)
+                        LigneChoix(texte: s.groupe.map { "\(s.feuille) · \($0)" } ?? s.nom, icone: "sparkle", mis_en_avant: true) { choisir(s.cle) }
+                        if let r = d.raison {
+                            Text(r).font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
+                                .lineLimit(2).padding(.horizontal, 8).padding(.top, 2)
+                        }
+                        Spacer().frame(height: 4)
                     }
                     if let n = nouveau {
                         LigneChoix(texte: L("Créer « %@ »", n), icone: "plus") { choisir(n) }
@@ -1430,12 +1767,12 @@ struct EcranClasser: View {
                     ForEach([projets, activites, horsTravail], id: \.self) { f in
                         let cats = trouvees.filter { $0.famille == f }
                         if !cats.isEmpty {
-                            Text(L(f)).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
-                                .padding(.top, 6).padding(.horizontal, 8)
-                            ForEach(Array(grouper(Array(cats.prefix(recherche.isEmpty ? 14 : 30))) { $0.nom }.enumerated()), id: \.offset) { _, g in
+                            Text(L(f)).font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.texteDiscret)
+                                .padding(.top, 8).padding(.horizontal, 8)
+                            ForEach(Array(grouper(Array(cats)) { $0.nom }.enumerated()), id: \.offset) { _, g in
                                 if let groupe = g.groupe {
-                                    Text(groupe).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                                        .padding(.horizontal, 8).padding(.top, 3)
+                                    Text(groupe).font(.system(size: 11, weight: .medium)).foregroundStyle(Color.texteDiscret)
+                                        .padding(.horizontal, 8).padding(.top, 4)
                                     ForEach(g.items) { c in LigneChoix(texte: c.feuille, retrait: true) { choisir(c.cle) } }
                                 } else {
                                     ForEach(g.items) { c in LigneChoix(texte: c.nom) { choisir(c.cle) } }
@@ -1481,6 +1818,7 @@ struct ChoixCouleur: View {
             .frame(width: 22, height: 22)
             .overlay(Circle().strokeBorder(Color.primary.opacity(choisie ? 0.9 : 0), lineWidth: 2).padding(-3))
             .contentShape(Circle())
+            .touchable(rayon: Rayon.grand)
             .onTapGesture { Task { await etat.choisirCouleur(cle, teinte: valeur) } }
             .help(aide)
     }
@@ -1490,11 +1828,11 @@ struct ChoixCouleur: View {
             Text(titre).font(.system(size: 13, weight: .semibold))
             let grille = Array(repeating: GridItem(.fixed(26), spacing: 8), count: 8)
             if let g = groupe {
-                Text(L("Nuances de %@", g)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                Text(L("Nuances de %@", g)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.texteDiscret)
                 LazyVGrid(columns: grille, spacing: 8) {
                     ForEach(nuances(de: couleurSerie(g)), id: \.self) { pastille($0, aide: $0) }
                 }
-                Text("Toutes les teintes").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                Text("Toutes les teintes").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.texteDiscret)
             }
             LazyVGrid(columns: grille, spacing: 8) {
                 ForEach(teintes, id: \.nom) { t in pastille(t.nom, aide: L(t.nom).prefix(1).uppercased() + L(t.nom).dropFirst()) }
@@ -1507,12 +1845,12 @@ struct ChoixCouleur: View {
                 Spacer()
                 if couleursPosees.contains(cle) {
                     Button(groupe == nil ? L("Par défaut") : L("Couleur du groupe")) { Task { await etat.choisirCouleur(cle, teinte: nil) } }
-                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .buttonStyle(StyleLien(couleur: Color.texteDiscret))
                 }
             }
-            .font(.system(size: 12))
+            .font(.system(size: 13))
         }
-        .padding(14)
+        .padding(16)
         .frame(width: 280)
         .onAppear { libre = couleurSerie(couleursChoisies[cle] != nil ? cle : (groupe ?? cle)) }
     }
@@ -1560,8 +1898,9 @@ struct EcranOrganiser: View {
             } else if f == projets {
                 Circle().fill(couleur)
                     .frame(width: 8, height: 8)
-                    .contentShape(Rectangle().inset(by: -4))
+                    .padding(4).touchable(rayon: Rayon.petit).padding(-4)
                     .onTapGesture { couleurOuverte = cle }
+                    .accessibilityLabel(L("Couleur…"))
                     .popover(isPresented: Binding(get: { couleurOuverte == cle }, set: { if !$0 { couleurOuverte = nil } })) {
                         ChoixCouleur(cle: cle, titre: titre, groupe: groupe).environmentObject(etat)
                     }
@@ -1580,11 +1919,11 @@ struct EcranOrganiser: View {
                 let ecart = f.total / 3600 - v
                 Text(ecart > 0 ? "+\(heures(ecart * 3600))" : "−\(heures(-ecart * 3600))")
                     .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(ecart > 0 ? Color.orange : Color.secondary)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .foregroundStyle(ecart > 0 ? Color.signal : Color.texteDiscret)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
                     .background(Capsule().fill((ecart > 0 ? Color.orange : Color.primary).opacity(0.12)))
             }
-            Text(heuresOuRien(etat.secondesFenetre[c.cle])).font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
+            Text(heuresOuRien(etat.secondesFenetre[c.cle])).font(.system(size: 11)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                 .frame(width: 52, alignment: .trailing)
         }
     }
@@ -1597,11 +1936,11 @@ struct EcranOrganiser: View {
             if let debut {
                 Button { dateOuverte = c.cle } label: {
                     Text(L("depuis le %@", debut.formatted(.dateTime.day().month(.abbreviated))))
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
+                        .padding(.horizontal, 8).padding(.vertical, 2)
                         .background(Capsule().fill(Color.primary.opacity(dateOuverte == c.cle ? 0.12 : 0.06)))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(StyleTouche(forme: .capsule))
             } else {
                 Color.clear.frame(width: 1, height: 1)
             }
@@ -1619,27 +1958,27 @@ struct EcranOrganiser: View {
     func ligne(_ c: Categorie, retrait: Bool, niveau: Int = 0) -> some View {
         let g = groupeCouleur(cle: c.cle, nom: c.nom)
         return AvecSurvol { survol in HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal").font(.system(size: 9)).foregroundStyle(.tertiary).frame(width: 10)
+            Image(systemName: "line.3.horizontal").font(.system(size: 10)).foregroundStyle(Color.texteDiscret).frame(width: 10)
                 .opacity(survol ? 1 : 0)
             pastille(cle: retrait ? c.cle : g, titre: retrait ? c.nom : g, groupe: retrait ? g : nil,
                      couleur: couleurSerie(serie(cle: c.cle, nom: c.nom, famille: c.famille)), famille: c.famille)
             NomModifiable(cle: c.cle, nom: c.nom, affiche: retrait ? (c.nom.components(separatedBy: " / ").last ?? c.nom) : c.nom)
                 .opacity(c.archivee ? 0.55 : 1)
-                .font(.system(size: niveau >= 2 ? 12 : 13))
+                .font(.system(size: 13))
             if niveau >= 2 { dateDeMission(c) }
             Spacer()
             resumeListe(c)
         }
         .font(.system(size: 13))
-        .padding(.vertical, 5).padding(.horizontal, 12)
+        .padding(.vertical, 4).padding(.horizontal, 12)
         .padding(.leading, retrait ? 14 + CGFloat(Swift.max(niveau - 1, 0)) * 18 : 0)
-        .background(RoundedRectangle(cornerRadius: 7).fill(cible == c.cle ? Color.accentColor.opacity(0.18)
-            : etat.projetChoisi == c.cle ? Color.accentColor.opacity(0.16) : Color.primary.opacity(survol ? 0.05 : 0)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(cible == c.cle ? Color.selection
+            : etat.projetChoisi == c.cle ? Color.selection : Color.primary.opacity(survol ? 0.05 : 0)))
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { etat.projetChoisi = c.cle })
         .popover(isPresented: Binding(get: { fusionDe == c.cle }, set: { if !$0 { fusionDe = nil } }), arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(L("Fusionner « %@ » dans…", c.nom)).font(.system(size: 13, weight: .semibold)).padding([.horizontal, .top], 10)
+                Text(L("Fusionner « %@ » dans…", c.nom)).font(.system(size: 13, weight: .semibold)).padding([.horizontal, .top], 12)
                 ChoixCategorie { cible in
                     fusionDe = nil
                     guard cible != c.cle else { return }
@@ -1649,11 +1988,11 @@ struct EcranOrganiser: View {
             .environmentObject(etat)
         }
         }
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(cible == c.cle ? Color.accentColor.opacity(0.6) : .clear))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(cible == c.cle ? Color.accentColor.opacity(0.6) : .clear))
         .contentShape(Rectangle())
         .draggable(c.cle) {
-            Text(c.nom).font(.system(size: 12)).padding(.horizontal, 8).padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
+            Text(c.nom).font(.system(size: 13)).padding(.horizontal, 8).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
         }
         .dropDestination(for: String.self) { cles, _ in
             guard let k = cles.first, let source = trouver(k) else { return false }
@@ -1752,11 +2091,11 @@ struct EcranOrganiser: View {
                 .padding(.leading, 32)
         case .mission(let c, _): ligne(c, retrait: true, niveau: 2)
         case .vide:
-            Text("Glisse un projet ici.").font(.system(size: 11)).foregroundStyle(.tertiary)
-                .padding(.horizontal, 30).padding(.vertical, 4)
+            Text("Glisse un projet ici.").font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
+                .padding(.horizontal, 32).padding(.vertical, 4)
         case .nouveauProjet(let n):
             if saisie == "projet:" + n.domaine.nom {
-                champ(L("Nom du projet")) { t in Task { await etat.creerProjet(t, dans: n.domaine) } }.padding(.leading, 22)
+                champ(L("Nom du projet")) { t in Task { await etat.creerProjet(t, dans: n.domaine) } }.padding(.leading, 24)
             } else {
                 boutonAjout(L("Nouveau projet")) { saisie = "projet:" + n.domaine.nom }.padding(.leading, 32)
             }
@@ -1766,10 +2105,10 @@ struct EcranOrganiser: View {
     /// « + Nouveau … » en bas d'une liste : discret, en couleur d'accent.
     func boutonAjout(_ texte: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(texte, systemImage: "plus").font(.system(size: 12, weight: .medium))
-                .padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            Label(texte, systemImage: "plus").font(.system(size: 13, weight: .medium))
+                .padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).foregroundStyle(Color.lien)
+        .buttonStyle(StyleLien())
     }
 
     /// Dans la fenêtre : Domaine › Projet › Mission, en une seule liste construite au fil du défilement.
@@ -1777,17 +2116,17 @@ struct EcranOrganiser: View {
     var corpsFenetre: some View {
         let arbre = etat.arbre
         let archivees = etat.categories.filter(\.archivee).sorted { $0.nom.lowercased() < $1.nom.lowercased() }
-        let fond = Color.primary.opacity(0.04)
+        let fond = Color.voile
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 Etiquette(texte: "Domaines", compte: arbre.count)
-                    .padding(.horizontal, 6).padding(.top, 12).padding(.bottom, 4)
+                    .padding(.horizontal, 8).padding(.top, 12).padding(.bottom, 4)
                 ForEach(rangees(arbre), id: \.0.id) { r, haut, bas in
                     vue(r)
-                        .padding(.horizontal, 4).padding(.top, haut ? 6 : 0).padding(.bottom, bas ? 6 : 0)
+                        .padding(.horizontal, 4).padding(.top, haut ? 8 : 0).padding(.bottom, bas ? 8 : 0)
                         .background(UnevenRoundedRectangle(topLeadingRadius: haut ? 12 : 0, bottomLeadingRadius: bas ? 12 : 0,
                                                            bottomTrailingRadius: bas ? 12 : 0, topTrailingRadius: haut ? 12 : 0).fill(fond))
-                        .padding(.top, haut ? 10 : 0)
+                        .padding(.top, haut ? 12 : 0)
                 }
                 Group {
                     if saisie == "domaine" {
@@ -1798,23 +2137,23 @@ struct EcranOrganiser: View {
                 }
                 .padding(.top, 12)
                 if !archivees.isEmpty {
-                    Divider().padding(.horizontal, 12).padding(.top, 10)
+                    Divider().padding(.horizontal, 12).padding(.top, 12)
                     Button {
-                        withAnimation(.easeOut(duration: 0.16)) { archivesOuvertes.toggle() }
+                        withAnimation(mouvement(.easeOut(duration: 0.16))) { archivesOuvertes.toggle() }
                     } label: {
                         HStack(spacing: 7) {
                             Image(systemName: "archivebox").font(.system(size: 11))
                             Text("Archivés").font(.system(size: 11, weight: .semibold))
                             Text("\(archivees.count)").font(.system(size: 10)).monospacedDigit()
                             Spacer()
-                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
                                 .rotationEffect(.degrees(archivesOuvertes ? 90 : 0))
                         }
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 5).padding(.horizontal, 12)
+                        .foregroundStyle(Color.texteDiscret)
+                        .padding(.vertical, 4).padding(.horizontal, 12)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(StyleTouche())
                     .padding(.top, 8)
                     if archivesOuvertes {
                         ForEach(archivees) { ligne($0, retrait: false).opacity(0.7) }
@@ -1852,27 +2191,27 @@ struct EcranOrganiser: View {
             }
             if renommeDomaine == d.nom {
                 TextField("", text: Binding(get: { nouvelles["dom"] ?? d.nom }, set: { nouvelles["dom"] = $0 }))
-                    .textFieldStyle(.plain).font(.system(size: 15, weight: .semibold)).focused($champ)
+                    .textFieldStyle(.plain).font(.system(size: 13, weight: .semibold)).focused($champ)
                     .onAppear { nouvelles["dom"] = d.nom; champ = true }
                     .onSubmit { let t = nouvelles["dom"] ?? d.nom; renommeDomaine = nil; Task { await etat.renommerDomaine(d.nom, en: t) } }
                     .onExitCommand { renommeDomaine = nil }
             } else {
-                Text(d.nom).font(.system(size: 15, weight: .semibold))
+                Text(d.nom).font(.system(size: 13, weight: .semibold))
                     .onTapGesture(count: 2) { renommeDomaine = d.nom }
             }
-            Text("\(n.projets.count)").font(.system(size: 11)).foregroundStyle(.tertiary)
+            Text("\(n.projets.count)").font(.system(size: 11)).foregroundStyle(Color.texteDiscret)
             if d.nature != "projets" {
-                Text(L(d.famille)).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.primary.opacity(0.07)))
+                Text(L(d.famille)).font(.system(size: 10, weight: .medium)).foregroundStyle(Color.texteDiscret)
+                    .padding(.horizontal, 8).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.fondPastille))
             }
             Spacer()
-            Text(heuresOuRien(totalDomaine)).font(.system(size: 12, weight: .semibold)).monospacedDigit().foregroundStyle(.secondary)
+            Text(heuresOuRien(totalDomaine)).font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                 .frame(width: 52, alignment: .trailing)
         }
         .simultaneousGesture(TapGesture().onEnded { if n.estGroupe { etat.projetChoisi = "groupe:" + d.nom } })
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(cible == cle ? Color.accentColor.opacity(0.18) : .clear))
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(cible == cle ? Color.selection : .clear))
         .contentShape(Rectangle())
         .contextMenu {
             Button(L("Nouveau projet")) { saisie = "projet:" + d.nom }
@@ -1929,10 +2268,10 @@ struct EcranOrganiser: View {
             let replie = replies.contains(p.prefixe)
             AvecSurvol { survol in
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.texteDiscret)
                         .rotationEffect(.degrees(replie ? 0 : 90)).frame(width: 10)
-                        .contentShape(Rectangle().inset(by: -6))
-                        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { basculer(p.prefixe) } }
+                        .padding(4).touchable(rayon: Rayon.petit).padding(-4)
+                        .onTapGesture { withAnimation(mouvement(.easeOut(duration: 0.15))) { basculer(p.prefixe) } }
                     Circle().fill(couleurSerie(serie(cle: p.prefixe, nom: p.prefixe, famille: d.famille))).frame(width: 8, height: 8)
                     if renommeBranche == p.prefixe {
                         TextField("", text: Binding(get: { nouvelles["br"] ?? p.nom }, set: { nouvelles["br"] = $0 }))
@@ -1950,19 +2289,19 @@ struct EcranOrganiser: View {
                     }
                     Spacer()
                     if survol { boutonMission(p) }
-                    Text(heuresOuRien(total)).font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
+                    Text(heuresOuRien(total)).font(.system(size: 11)).monospacedDigit().foregroundStyle(Color.texteDiscret)
                         .frame(width: 52, alignment: .trailing)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .padding(.leading, 14)
-                .background(RoundedRectangle(cornerRadius: 7).fill(cible == "proj:" + p.prefixe ? Color.accentColor.opacity(0.18)
-                    : choisi ? Color.accentColor.opacity(0.16) : Color.primary.opacity(survol ? 0.05 : 0)))
+                .padding(.horizontal, 12).padding(.vertical, 4)
+                .padding(.leading, 16)
+                .background(RoundedRectangle(cornerRadius: 8).fill(cible == "proj:" + p.prefixe ? Color.selection
+                    : choisi ? Color.selection : Color.primary.opacity(survol ? 0.05 : 0)))
                 .contentShape(Rectangle())
             }
             .simultaneousGesture(TapGesture().onEnded { etat.projetChoisi = "groupe:" + p.prefixe })
             .draggable("projet:" + p.prefixe) {
-                Text(p.nom).font(.system(size: 12)).padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
+                Text(p.nom).font(.system(size: 13)).padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
             }
             .dropDestination(for: String.self) { cles, _ in
                 guard let k = cles.first, !k.hasPrefix("projet:"), let source = trouver(k), !p.cats.contains(where: { $0.cle == k }) else { return false }
@@ -1990,7 +2329,7 @@ struct EcranOrganiser: View {
         Button { saisie = "mission:" + p.prefixe } label: {
             Label(L("Mission"), systemImage: "plus").font(.system(size: 11, weight: .medium))
         }
-        .buttonStyle(.plain).foregroundStyle(Color.lien)
+        .buttonStyle(StyleLien())
         .padding(.horizontal, 8)
     }
 
@@ -2014,6 +2353,14 @@ struct AvecSurvol<Contenu: View>: View {
 struct Fenetre: View {
     @EnvironmentObject var etat: Etat
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var fermer
+
+    /// Ouvre la fenêtre de Temps et referme le panneau de la barre des menus.
+    func ouvrirTemps() {
+        openWindow(id: "fenetre")
+        activer()
+        fermer()
+    }
 
     /// Au plus sept lignes : le reste passe dans « Autres », dépliable.
     /// (Pas de ScrollView : dans la fenêtre de la barre des menus, il s'effondre à une hauteur nulle.)
@@ -2025,6 +2372,43 @@ struct Fenetre: View {
     }
 
     func famille(_ nom: String) -> Famille? { etat.familles.first { $0.nom == nom } }
+
+    /// Les postes de travail de la période (projets et activités), du plus long au plus court.
+    var travailTries: [(poste: Poste, famille: String)] {
+        ((famille(projets)?.postes ?? []).map { ($0, projets) } + (famille(activites)?.postes ?? []).map { ($0, activites) })
+            .sorted { $0.0.secondes > $1.0.secondes }
+    }
+    var travailTotal: Int { travailTries.count }
+    /// Change quand les données d'une autre période arrivent : la liste se renouvelle d'un seul fondu.
+    var cleDonnees: String { "\(etat.depuis?.timeIntervalSince1970 ?? 0)-\(etat.jours)-\(etat.jourChoisi ?? 0)" }
+
+    struct GroupePanneau {
+        let domaine: String
+        var total: Double
+        var postes: [Poste]
+        var familles: [String: String]
+        /// Le nom sans son domaine : « Dupont » plutôt que « Studio / Dupont ».
+        func court(_ p: Poste) -> String {
+            p.nom.hasPrefix(domaine + " / ") ? String(p.nom.dropFirst(domaine.count + 3)) : L(p.nom)
+        }
+        @MainActor func couleur(_ p: Poste) -> Color { couleurSerie(serie(cle: p.cle, nom: p.nom, famille: familles[p.cle] ?? projets)) }
+    }
+
+    /// Les six postes les plus longs, rangés sous leur domaine ; les domaines du plus chargé au moins chargé.
+    func groupesDuPanneau() -> [GroupePanneau] {
+        var totaux: [String: Double] = [:]
+        for (p, f) in travailTries { totaux[etat.placer(p.nom, famille: f).domaine, default: 0] += p.secondes }
+        var groupes: [String: GroupePanneau] = [:]
+        for (p, f) in travailTries.prefix(6) {
+            let d = etat.placer(p.nom, famille: f).domaine
+            groupes[d, default: GroupePanneau(domaine: d, total: totaux[d] ?? 0, postes: [], familles: [:])].postes.append(p)
+            groupes[d]?.familles[p.cle] = f
+        }
+        return groupes.values.sorted { $0.total > $1.total }
+    }
+
+    /// Le panneau montre un seul jour (aujourd'hui ou un jour choisi) : ruban plutôt qu'histogramme.
+    var unJour: Bool { etat.jours == 0 || etat.jourChoisi != nil }
 
     var periode: String {
         guard let d = etat.depuis else { return "" }
@@ -2044,10 +2428,13 @@ struct Fenetre: View {
         Group {
             switch etat.ecran {
             case .tableau: tableau
-            case .classer(let d): EcranClasser(d: d)
+            case .classer(let d):
+                // le panneau ne défile pas de lui-même : l'écran Classer tient dans la hauteur de l'écran
+                ScrollView { EcranClasser(d: d) }
+                    .frame(height: min(760, (NSScreen.main?.visibleFrame.height ?? 800) - 60))
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(width: 360)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) {
@@ -2056,15 +2443,15 @@ struct Fenetre: View {
                     Text(r.message).lineLimit(1)
                     Spacer()
                     Button("Annuler") { Task { await etat.annuler() } }
-                        .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Color.lien)
+                        .buttonStyle(StyleLien()).fontWeight(.semibold)
                 }
-                .font(.system(size: 12))
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color(nsColor: .controlBackgroundColor)))
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.12)))
+                .font(.system(size: 13))
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.appui))
                 .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
-                .padding(10)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(12)
+                .transition(glissement(.bottom))
             }
         }
         .task { await etat.charger() }
@@ -2073,27 +2460,73 @@ struct Fenetre: View {
     var tableau: some View {
         let echelle = max(famille(projets)?.postes.first?.secondes ?? 0, famille(nonClasse)?.secondes ?? 0, 1)
         return VStack(alignment: .leading, spacing: 12) {
+            // les actions en haut : pas besoin de descendre sous une longue liste de projets
+            HStack(spacing: 6) {
+                BoutonPlage(pastille: true)
+                Spacer()
+                Button { ouvrirTemps() } label: { Label(L("Ouvrir Temps"), systemImage: "macwindow") }
+                    .buttonStyle(StylePastille())
+                Menu {
+                    SettingsLink { Text("Réglages…") }
+                    Divider()
+                    Button("Quitter Temps") { etat.moteur.arreter(); NSApp.terminate(nil) }.keyboardShortcut("q")
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
+                        .frame(width: 14, height: 14)
+                }
+                .menuStyle(.button).buttonStyle(StylePastille()).menuIndicator(.hidden).fixedSize()
+                .accessibilityLabel(L("Plus"))
+                .foregroundStyle(Color.texteDiscret)
+            }
+
+            CarteAcces()
+
             HStack(alignment: .bottom, spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(duree(etat.travail))
-                        .font(.system(size: 30, weight: .semibold)).tracking(-0.6).monospacedDigit()
+                        .font(.affichage).tracking(-0.6)
                         .contentTransition(.numericText())
-                    Text(periode).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 2) {
+                        if unJour {
+                            Button { etat.decalerJour(-1) } label: { Image(systemName: "chevron.left").frame(width: 24, height: 24) }
+                                .accessibilityLabel(L("Jour précédent"))
+                                .buttonStyle(StyleTouche(forme: .cercle))
+                        }
+                        Text(periode).font(.secondaire).foregroundStyle(Color.texteDiscret).lineLimit(1)
+                        if unJour && etat.jourChoisi != nil {
+                            Button { etat.decalerJour(1) } label: { Image(systemName: "chevron.right").frame(width: 24, height: 24) }
+                                .accessibilityLabel(L("Jour suivant"))
+                                .buttonStyle(StyleTouche(forme: .cercle))
+                        }
+                    }
+                    .font(.legende).foregroundStyle(Color.texteDiscret)
+                    .frame(height: 18)
                 }
                 Spacer(minLength: 0)
-                Histogramme().frame(width: 150)
             }
             .padding(.horizontal, 4)
 
-            Picker("", selection: $etat.jours) {
-                Text(etat.jourChoisi.map { jourCourt($0) } ?? L("Aujourd'hui")).tag(0)
-                Text("7 jours").tag(6)
-                Text("30 jours").tag(29)
+            // la zone graphique garde sa hauteur : passer d'un jour à 7 ou 30 jours ne déplace rien dessous
+            ZStack {
+                if unJour {
+                    RubanPanneau { d in withAnimation(mouvement(.snappy(duration: 0.18))) { etat.ecran = .classer(d) } }
+                        .transition(.opacity)
+                } else if etat.jours >= 29 {
+                    CalendrierMois { j in etat.ouvrirJour(j) }
+                        .transition(.opacity)
+                } else {
+                    Histogramme(hauteur: 52) { j in etat.ouvrirJour(j) }
+                        .transition(.opacity)
+                }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity)
+            .frame(height: 72, alignment: .top)
+            .padding(.horizontal, 4)
+            .animation(mouvement(.easeInOut(duration: 0.18)), value: unJour ? 0 : etat.jours)
 
-            if let e = etat.erreur {
-                Text(e).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            SelecteurPeriode()
+
+            if let e = etat.erreur, !erreurDAcces(e) {
+                BanniereErreur(texte: e)
             }
 
             if !etat.reperes.isEmpty {
@@ -2103,52 +2536,54 @@ struct Fenetre: View {
                 }
             }
 
-            if let n = famille(nonClasse), let poste = n.postes.first {
-                CarteNonClasse(poste: poste, max: echelle) {
-                    etat.rubriqueDemandee = "À classer"
-                    openWindow(id: "fenetre")
-                    activer()
+            // tout ce qui dépend de la période (non classé, travail, hors travail) change d'un seul fondu :
+            // rien ne glisse quand on passe d'aujourd'hui à 7 jours
+            let groupes = groupesDuPanneau()
+            let affiches = groupes.reduce(0) { $0 + $1.postes.count }
+            ZStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 12) {
+                if let n = famille(nonClasse), let poste = n.postes.first {
+                    CarteNonClasse(poste: poste, max: echelle) {
+                        etat.rubriqueDemandee = "À classer"
+                        ouvrirTemps()
+                    }
                 }
-            }
 
-            Carte {
-                if let p = famille(projets) {
-                    ListeDomaines(postes: p.postes, max: echelle)
+                // le travail : six projets au plus, rangés sous leur domaine ; la suite dans la fenêtre
+                if !groupes.isEmpty {
+                    Carte {
+                        ForEach(groupes, id: \.domaine) { g in
+                            HStack(spacing: 6) {
+                                Text(g.domaine).font(.corpsFort)
+                                Spacer()
+                                Text(duree(g.total)).font(.secondaire).monospacedDigit().foregroundStyle(Color.texteDiscret)
+                            }
+                            .padding(.horizontal, 8).padding(.top, g.domaine == groupes.first?.domaine ? 2 : 8)
+                            ForEach(g.postes) { p in
+                                LignePoste(poste: p, max: echelle, affiche: g.court(p), pastille: g.couleur(p), barre: g.couleur(p))
+                            }
+                        }
+                        if travailTotal > affiches {
+                            Button(L("+ %d autres", travailTotal - affiches)) { ouvrirTemps() }
+                                .buttonStyle(StyleLien()).font(.secondaire)
+                                .padding(.horizontal, 4).padding(.top, 2)
+                        }
+                    }
                 }
-                if let a = famille(activites) {
-                    Divider().padding(.vertical, 6).padding(.horizontal, 8)
-                    Etiquette(texte: activites, compte: a.postes.count, droite: duree(a.secondes))
-                    ListeGroupee(postes: Fenetre.resserrer(a.postes, max: 4), max: echelle, discret: true, famille: activites)
-                }
-            }
 
-            if let h = famille(horsTravail) {
-                LignePoste(poste: ligneHors(h), max: max(h.secondes, echelle), discret: true)
-                    .padding(.horizontal, 4)
-            }
-
-            HStack(spacing: 14) {
-                BoutonPlage()
-                Spacer()
-                Button("Ouvrir Temps") {
-                    openWindow(id: "fenetre")
-                    activer()
+                if let h = famille(horsTravail) {
+                    LignePoste(poste: ligneHors(h), max: max(h.secondes, echelle), discret: true)
+                        .padding(.horizontal, 4)
                 }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
-                Menu {
-                    SettingsLink { Text("Réglages…") }
-                    Divider()
-                    Button("Quitter Temps") { etat.moteur.arreter(); NSApp.terminate(nil) }.keyboardShortcut("q")
-                } label: {
-                    Image(systemName: "ellipsis.circle").font(.system(size: 13)).foregroundStyle(.secondary)
-                }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             }
-            .font(.system(size: 12))
-            .padding(.horizontal, 4).padding(.top, 2)
+            .id(cleDonnees)
+            .transition(.opacity)
+            }
+            .animation(mouvement(.easeInOut(duration: 0.15)), value: cleDonnees)
         }
     }
 }
+
 
 /// Le total du jour dans la barre des menus. Créée au lancement : c'est elle qui donne à l'état de quoi ouvrir la fenêtre.
 struct EtiquetteBarre: View {
@@ -2206,10 +2641,13 @@ struct TempsApp: App {
                 .keyboardShortcut("e")
             }
             CommandGroup(before: .sidebar) {
-                ForEach(Array(Rubrique.allCases.enumerated()), id: \.offset) { i, r in
+                // ⌘1 Vue d'ensemble, ⌘2 Projets, ⌘3 Bilan ; ⌘0 À classer
+                ForEach(Array(Rubrique.allCases.filter { $0 != .aClasser }.enumerated()), id: \.offset) { i, r in
                     Button(L(r.rawValue)) { etat.rubriqueDemandee = r.rawValue }
                         .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
                 }
+                Button(L(Rubrique.aClasser.rawValue)) { etat.rubriqueDemandee = Rubrique.aClasser.rawValue }
+                    .keyboardShortcut("0", modifiers: .command)
                 Divider()
             }
             CommandGroup(replacing: .appTermination) {
@@ -2223,10 +2661,11 @@ struct TempsApp: App {
 /// Dans le panneau : « + Plage » ouvre la saisie dans sa propre fenêtre (projet, heures, note).
 struct BoutonPlage: View {
     @Environment(\.openWindow) private var openWindow
+    var pastille = false
     var body: some View {
-        Button { openWindow(id: "plage"); activer() } label: { Label(L("Plage"), systemImage: "plus") }
-            .buttonStyle(.plain).foregroundStyle(.secondary)
+        let b = Button { openWindow(id: "plage"); activer() } label: { Label(L("Plage"), systemImage: "plus") }
             .help(L("Ajouter une plage hors du Mac : réunion, rendez-vous, croquis"))
+        if pastille { b.buttonStyle(StylePastille()) } else { b.buttonStyle(StyleLien(couleur: Color.texteDiscret)) }
     }
 }
 
@@ -2236,5 +2675,139 @@ struct FenetrePlage: View {
     var body: some View {
         // un formulaire neuf à chaque ouverture
         FormulairePlage { essai += 1; dismissWindow(id: "plage") }.id(essai)
+    }
+}
+
+
+/// Le ruban du jour affiché dans le panneau : sa propre frise, rechargée quand le total change.
+struct RubanPanneau: View {
+    @EnvironmentObject var etat: Etat
+    let ouvrir: (Detail) -> Void
+    @State private var frise: Frise?
+
+    var jour: Date {
+        Calendar.current.startOfDay(for: etat.jourChoisi.map { Date(timeIntervalSince1970: $0) } ?? Date())
+    }
+
+    var body: some View {
+        RubanJour(friseLocale: frise, jourLocal: jour, compact: true, ouvrirSur: ouvrir)
+            .task(id: "\(jour.timeIntervalSince1970)-\(Int(etat.travail / 60))") {
+                guard let url = URL(string: "http://127.0.0.1:8230/frise?jour=\(jour.timeIntervalSince1970)"),
+                      let (d, _) = try? await URLSession.shared.data(from: url) else { return }
+                frise = try? JSONDecoder().decode(Frise.self, from: d)
+            }
+    }
+}
+
+
+/// Les 30 derniers jours en calendrier : une ligne par semaine (lundi → dimanche), chaque case plus ou moins
+/// foncée selon le travail du jour ; aujourd'hui cerclé ; un clic ouvre le jour.
+struct CalendrierMois: View {
+    @EnvironmentObject var etat: Etat
+    let ouvrir: (Jour) -> Void
+
+    /// Les semaines, complétées par des cases vides avant le premier jour et après aujourd'hui.
+    var semaines: [[Jour?]] {
+        guard let premier = etat.mois.first else { return [] }
+        let cal = Calendar.current
+        let decalage = (cal.component(.weekday, from: Date(timeIntervalSince1970: premier.jour)) + 5) % 7   // lundi = 0
+        var cases: [Jour?] = Array(repeating: nil, count: decalage) + etat.mois.map { Optional($0) }
+        while cases.count % 7 != 0 { cases.append(nil) }
+        return stride(from: 0, to: cases.count, by: 7).map { Array(cases[$0..<$0 + 7]) }
+    }
+
+    var body: some View {
+        let lignes = semaines
+        let hauteur = Swift.max(6, (58 - CGFloat(lignes.count - 1) * 3) / CGFloat(Swift.max(lignes.count, 1)))
+        VStack(spacing: 3) {
+            HStack(spacing: 3) {
+                ForEach(0..<7, id: \.self) { i in
+                    Text(Histogramme.initiales[(i + 1) % 7]).font(.legende).foregroundStyle(Color.texteDiscret).frame(maxWidth: .infinity)
+                }
+            }
+            ForEach(Array(lignes.enumerated()), id: \.offset) { _, semaine in
+                HStack(spacing: 3) {
+                    ForEach(Array(semaine.enumerated()), id: \.offset) { _, j in
+                        if let j {
+                            let aujourdhui = j.id == etat.mois.last?.id
+                            Button { ouvrir(j) } label: {
+                                RoundedRectangle(cornerRadius: Rayon.petit)
+                                    .fill(Color.primary.opacity(j.travail > 0 ? 0.1 + 0.72 * Swift.min(1, j.travail / (8 * 3600)) : 0.035))
+                                    .overlay(RoundedRectangle(cornerRadius: Rayon.petit)
+                                        .strokeBorder(aujourdhui ? Color.lien : .clear, lineWidth: 1.5))
+                                    .frame(height: hauteur)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(StyleTouche(forme: .rectangle(Rayon.petit)))
+                            .help("\(formatJourLong.string(from: Date(timeIntervalSince1970: j.jour))) · \(duree(j.travail))")
+                            .accessibilityLabel("\(formatJourLong.string(from: Date(timeIntervalSince1970: j.jour))), \(duree(j.travail))")
+                        } else {
+                            Color.clear.frame(height: hauteur)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+}
+
+
+/// Aujourd'hui (ou le jour choisi) / 7 jours / 30 jours, sur toute la largeur du panneau.
+struct SelecteurPeriode: View {
+    @EnvironmentObject var etat: Etat
+    @Namespace private var espace
+
+    var body: some View {
+        let choix: [(Int, String)] = [(0, etat.jourChoisi.map { jourCourt($0) } ?? L("Aujourd'hui")), (6, L("7 jours")), (29, L("30 jours"))]
+        HStack(spacing: 2) {
+            ForEach(choix, id: \.0) { valeur, libelle in
+                let actif = valeur == 0 ? (etat.jours == 0 || etat.jourChoisi != nil) : (etat.jours == valeur && etat.jourChoisi == nil)
+                Button {
+                    if valeur == 0 { if etat.jours != 0 { etat.jours = 0 } } else { etat.jours = valeur }
+                } label: {
+                    Text(libelle).font(.system(size: 11, weight: actif ? .semibold : .regular)).lineLimit(1)
+                        .foregroundStyle(actif ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.texteDiscret))
+                        .frame(maxWidth: .infinity).frame(height: 24)
+                        .background {
+                            if actif {
+                                RoundedRectangle(cornerRadius: 6).fill(Color.appui)
+                                    .matchedGeometryEffect(id: "periode", in: espace)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(StyleTouche(forme: .rectangle(6)))
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: Rayon.moyen).fill(Color.voile))
+        .animation(mouvement(.snappy(duration: 0.2)), value: etat.jours)
+        .animation(mouvement(.snappy(duration: 0.2)), value: etat.jourChoisi)
+    }
+}
+
+
+/// Une erreur liée à un accès macOS : la carte des accès la montre déjà, avec son bouton.
+func erreurDAcces(_ e: String) -> Bool {
+    e.contains("Réglages Système") || e.contains("System Settings")
+}
+
+/// Une erreur, en orange, avec l'action qui répare quand il y en a une (le journal, si le moteur ne répond pas).
+struct BanniereErreur: View {
+    let texte: String
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").font(.secondaire)
+            Text(texte.components(separatedBy: " Journal").first ?? texte).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            if texte.contains("8230") {
+                Button(L("Journal")) { NSWorkspace.shared.open(Moteur.donnees.appendingPathComponent("journal.log")) }
+                    .buttonStyle(StylePastille())
+            }
+        }
+        .font(.corps).foregroundStyle(Color.signal)
+        .padding(.vertical, 8).padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: Rayon.grand).fill(Color.fondSignal))
     }
 }

@@ -55,8 +55,11 @@ def recharger():
 
 
 def _recharger(regles):
-    global REGLES, CHEMINS, ALIAS, NOMS, ACTIVITES, HORS_TRAVAIL, IGNORER, RACINES, INTERMEDIAIRES, RACINE_NOM, EXCLUS
+    global REGLES, CHEMINS, ALIAS, NOMS, ACTIVITES, HORS_TRAVAIL, IGNORER, RACINES, INTERMEDIAIRES, RACINE_NOM, EXCLUS, PARTAGES
     REGLES = regles
+    # sources partagées (un prestataire, un outil qui sert à plusieurs projets) : jamais de règle,
+    # elles prennent le projet sur lequel on travaille autour d'elles
+    PARTAGES = [m.lower() for m, v in REGLES.get("partages", {}).items() if v]
     d = REGLES.get("dossiers", {})
     RACINES = [Path(r).expanduser() for r in d.get("racines", [])]
     INTERMEDIAIRES = set(d.get("intermediaires", []))
@@ -139,7 +142,16 @@ def en_fusions(c):
         c.tot[cible] += c.tot.pop(k)
         for x, sec in c.detail.pop(k, {}).items():
             c.detail[cible][x] += sec
+    _remplacer_proches(c, lambda k: fusion_de(k) if k in REGLES.get("fusions", {}) else k)
     return c
+
+
+def _remplacer_proches(c, f):
+    for x, d in c.proches.items():
+        neuf = defaultdict(float)
+        for k, sec in d.items():
+            neuf[f(k)] += sec
+        c.proches[x] = neuf
 
 
 def en_missions(c, jour):
@@ -151,6 +163,7 @@ def en_missions(c, jour):
         c.tot[m] += c.tot.pop(client)
         for k, sec in c.detail.pop(client, {}).items():
             c.detail[m][k] += sec
+        _remplacer_proches(c, lambda k, client=client, m=m: m if k == client else k)
     return c
 
 
@@ -253,7 +266,69 @@ def classer(bundle, titre="", doc=""):
     for motif, libelle in REGLES["titres"].items():
         if motif.lower() in texte:
             return libelle
+    if doc.startswith(("/", "file://")):
+        cle, _ = dossier_nomme(doc)
+        if cle:
+            return cle
+    if est_partage(texte):
+        return NON_CLASSE
     return REGLES["apps"].get(bundle, NON_CLASSE)
+
+
+_NOMS_DOSSIERS = {}
+
+
+def noms_de_projets():
+    """{nom normalisé: {clés}} des projets connus, pour les reconnaître dans les dossiers d'un chemin.
+    Un nom de groupe (« Studio ») ou de moins de 4 lettres ne compte pas. Refait quand les règles changent."""
+    if id(REGLES) in _NOMS_DOSSIERS:
+        return _NOMS_DOSSIERS[id(REGLES)]
+    cles = set(NOMS) | set(REGLES.get("projets", {}))
+    for sec in ("forcer", "titres", "apps", "chemins"):
+        cles |= {v for v in REGLES.get(sec, {}).values() if isinstance(v, str)}
+    for g in groupes_dossiers():
+        for d in g.iterdir():
+            if d.is_dir() and not d.name.startswith((".", "00")) and d.name not in INTERMEDIAIRES:
+                cles.add(f"{g.name} / {d.name}")
+    groupes = {_norme(NOMS.get(k, k).split(" / ")[0]) for k in cles if " / " in NOMS.get(k, k)}
+    noms = defaultdict(set)
+    for k in cles:
+        n = _norme(NOMS.get(k, k).split(" / ")[-1])
+        if len(n) >= 4 and n not in groupes and famille(k) == PROJETS:
+            noms[n].add(fusion_de(k))
+    # les autres noms d'un projet (le client derrière une marque, un ancien nom), posés dans sa fiche
+    for k, alias in aussi_appeles():
+        n = _norme(alias)
+        if len(n) >= 4:
+            noms[n].add(fusion_de(k))
+    _NOMS_DOSSIERS.clear()
+    _NOMS_DOSSIERS[id(REGLES)] = noms
+    return noms
+
+
+def dossier_nomme(doc):
+    """Un fichier hors des racines dont un dossier du chemin porte le nom d'un projet : (projet, None).
+    Si le chemin croise plusieurs projets, rien n'est rangé : (None, le plus profond), pour une suggestion."""
+    doc = chemin_fichier(doc)
+    if not doc.startswith("/"):   # un vrai chemin (ou une adresse file://), pas un nom de conversation
+        return None, None
+    noms = noms_de_projets()
+    trouves = []
+    for partie in Path(doc).parts:
+        c = noms.get(_norme(partie))
+        if c and len(c) == 1:
+            k = next(iter(c))
+            if k not in trouves:
+                trouves.append(k)
+    if len(trouves) == 1:
+        return trouves[0], None
+    return None, (trouves[-1] if trouves else None)
+
+
+def est_partage(texte):
+    """Vrai si le texte (titre, adresse, contexte) désigne une source partagée de `[partages]`."""
+    t = texte.lower()
+    return any(m in t for m in PARTAGES)
 
 
 def nom_app(bundle):
@@ -290,6 +365,8 @@ class Collecte:
     def __init__(self):
         self.tot = defaultdict(float)
         self.detail = defaultdict(lambda: defaultdict(float))
+        # source partagée vue à côté d'un seul projet : {(appareil, app, contexte): {projet voisin: secondes}}
+        self.proches = defaultdict(lambda: defaultdict(float))
 
     def ajouter(self, appareil, bundle, secondes, titre="", doc="", secours=None, tranches=None, plages=()):
         """`secours` : la catégorie à prendre si aucune règle ne range la ligne.
@@ -315,6 +392,8 @@ class Collecte:
             cle = secours
         if cle == NON_CLASSE and appareil != "Mac":
             cle = appareil
+        if cle == NON_CLASSE:
+            self.noter_dossier((appareil, bundle, ctx), doc, secondes)
         self.tot[cle] += secondes
         self.detail[cle][(appareil, bundle, ctx)] += secondes
 
@@ -324,6 +403,21 @@ class Collecte:
         for cle, d in autre.detail.items():
             for k, sec in d.items():
                 self.detail[cle][k] += sec
+        for k, d in autre.proches.items():
+            for cle, sec in d.items():
+                self.proches[k][cle] += sec
+
+    def noter_dossier(self, k, doc, secondes):
+        """Une ligne restée non classée dont le chemin croise plusieurs projets : le plus profond en suggestion."""
+        if doc.startswith(("/", "file://")):
+            _, s = dossier_nomme(realias(doc))
+            if s:
+                self.proches[k][s] += secondes
+
+    def proche(self, k):
+        """Le projet qui a le plus souvent bordé cette source partagée, ou None."""
+        d = self.proches.get(k)
+        return max(d.items(), key=lambda x: x[1])[0] if d else None
 
     def vers_json(self):
         return {"tot": self.tot, "detail": {cle: [[*k, sec] for k, sec in d.items()] for cle, d in self.detail.items()}}
@@ -360,13 +454,17 @@ def manuels():
         return []
 
 
-def ajouter_manuel(debut, fin, cle, note="", force=False):
+def ajouter_manuel(debut, fin, cle, note="", force=False, motif=""):
+    """Une plage saisie. Avec `motif` (un contexte : site, fichier, session), elle ne range que cette source
+    pendant la plage, sans rien ajouter d'autre : c'est « juste cette fois », sans règle."""
     if not cle or fin <= debut:
         raise ValueError(tr("une plage demande un projet, et une fin après le début.", "a time block needs a project and an end after its start."))
     l = manuels()
     m = {"id": f"{int(time.time() * 1000):x}", "debut": float(debut), "fin": float(fin), "cle": cle, "note": note.strip()}
-    if force:
+    if force or motif:
         m["force"] = True
+    if motif:
+        m["motif"] = motif
     MANUEL.parent.mkdir(parents=True, exist_ok=True)
     MANUEL.write_text(json.dumps(l + [m], ensure_ascii=False, indent=1))
     return m
@@ -383,9 +481,10 @@ def etiquette_manuelle():
     return tr("Plage saisie", "Manual block")
 
 
-def manuel_a(t, liste):
-    """La plage saisie qui couvre l'instant t (la plus récente l'emporte), ou None."""
-    return next((m for m in reversed(liste) if m["debut"] <= t < m["fin"]), None)
+def manuel_a(t, liste, ctx=None):
+    """La plage saisie qui couvre l'instant t (la plus récente l'emporte), ou None.
+    Une plage limitée à une source (`motif`) ne couvre que la ligne de ce contexte."""
+    return next((m for m in reversed(liste) if m["debut"] <= t < m["fin"] and m.get("motif", ctx) == ctx), None)
 
 
 def seuil_lissage():
@@ -393,19 +492,30 @@ def seuil_lissage():
     return min(float(REGLES.get("reglages", {}).get("lissage", 10)), 2) * 60
 
 
-def lisser(voisins, t):
+def lisser(voisins, t, large=False, proche=None):
     """Le projet d'un petit moment à l'instant t : celui qui domine dans le quart d'heure autour, à condition
-    qu'il soit là avant et après (une miette prise entre deux morceaux du même projet). Sinon Non classé."""
+    qu'il soit là avant et après (une miette prise entre deux morceaux du même projet). Sinon Non classé.
+    `large` (une source partagée) : seul un projet d'au moins une minute compte (un prestataire sert un projet,
+    pas le Finder ni la boîte mail) ; s'il n'est que d'un côté, rien n'est rangé, mais `proche(cle)` le reçoit
+    pour en faire une suggestion."""
+    n = 3
     autour = defaultdict(float)
-    for k in range(-3, 4):
+    for k in range(-n, n + 1):
         for c, x in voisins.get(t + k * TRANCHE, {}).items():
-            autour[c] += x
+            if not large or famille(c) == PROJETS:
+                autour[c] += x
     if not autour:
         return NON_CLASSE
-    cle = max(autour.items(), key=lambda kv: kv[1])[0]
-    avant = any(cle in voisins.get(t - k * TRANCHE, {}) for k in range(4))
-    apres = any(cle in voisins.get(t + k * TRANCHE, {}) for k in range(4))
-    return cle if avant and apres else NON_CLASSE
+    cle, poids = max(autour.items(), key=lambda kv: kv[1])
+    if large and poids < 60:   # quelques secondes ailleurs ne font pas un contexte
+        return NON_CLASSE
+    avant = any(cle in voisins.get(t - k * TRANCHE, {}) for k in range(n + 1))
+    apres = any(cle in voisins.get(t + k * TRANCHE, {}) for k in range(n + 1))
+    if avant and apres:
+        return cle
+    if large and proche and (avant or apres):
+        proche(cle)
+    return NON_CLASSE
 
 
 class Brut:
@@ -440,8 +550,9 @@ class Brut:
                 reste = {}
                 cle0 = cle_simple(b, titre, doc, sec_)
                 autre_projet = cle0 != NON_CLASSE and famille(cle0) == PROJETS
+                ctx0 = contexte(b, titre, chemin_fichier(doc))
                 for t, v in tr.items():
-                    m = manuel_a(t, saisies)
+                    m = manuel_a(t, saisies, ctx0)
                     if m and autre_projet and fusion_de(cle0) != m["cle"] and not m.get("force"):
                         couvert[m["id"]] += v   # déjà rangé dans un autre projet : reste tel quel
                         reste[t] = v
@@ -455,19 +566,23 @@ class Brut:
                 if sec <= 0.5:
                     continue
                 tr = reste
-            if seuil and ap == "Mac" and tr and b not in IGNORER:
+            if ap == "Mac" and tr and b not in IGNORER:
                 cle = cle_simple(b, titre, doc, sec_)
-                if cle == NON_CLASSE and sec <= seuil:
-                    petits.append(((ap, b, titre, doc, sec_), sec, tr))
+                part = cle == NON_CLASSE and est_partage(f"{titre} {doc}")
+                if cle == NON_CLASSE and (part or seuil and sec <= seuil):
+                    petits.append(((ap, b, titre, doc, sec_), sec, tr, part))
                     continue
                 if cle != NON_CLASSE and famille(cle) != HORS:
                     for t, v in tr.items():
                         voisins[t][cle] += v
             c.ajouter(ap, b, sec, titre, doc, sec_ or None, tr, plages)
-        for (ap, b, titre, doc, sec_), sec, tr in petits:
+        for (ap, b, titre, doc, sec_), sec, tr, part in petits:
             ctx = contexte(b, titre, chemin_fichier(doc))
             for t, v in tr.items():
-                cle = next((c for a, z, c in plages if a <= t < z), None) or lisser(voisins, t)
+                noter = lambda k, x=(ap, b, ctx), v=v: c.proches[x].__setitem__(k, c.proches[x][k] + v)
+                cle = next((c_ for a, z, c_ in plages if a <= t < z), None) or lisser(voisins, t, part, noter)
+                if cle == NON_CLASSE:
+                    c.noter_dossier((ap, b, ctx), doc, v)
                 c.tot[cle] += v
                 c.detail[cle][(ap, b, ctx)] += v
         for m in saisies:
@@ -509,11 +624,12 @@ def frise(j):
     pl = [x for x in plages() if x[0] < j + JOUR + 3600 and x[1] > j]
     tranches = defaultdict(lambda: defaultdict(float))
     ctx = defaultdict(lambda: defaultdict(float))
+    source = {}   # contexte affiché → (app, contexte de classement), pour ouvrir l'écran Classer depuis le ruban
     # même lissage que Brut.classer
     seuil = seuil_lissage()
     voisins = defaultdict(lambda: defaultdict(float))
     for (ap, bundle, titre, doc, sec_), (_, tr) in b.lignes.items():
-        if seuil and ap == "Mac" and bundle not in IGNORER:
+        if ap == "Mac" and bundle not in IGNORER:
             c = cle_simple(bundle, titre, doc, sec_)
             if c != NON_CLASSE and famille(c) != HORS:
                 for t, v in tr.items():
@@ -525,16 +641,19 @@ def frise(j):
         petit = seuil and total <= seuil
         d = "" if bundle == CLAUDE and any(doc.rstrip("/") == str(r) for r in RACINES) else doc
         cle0 = classer_memo(bundle, titre, d)
-        x = contexte(bundle, titre, chemin_fichier(d)) or nom_app(bundle)
+        part = cle0 == NON_CLASSE and est_partage(f"{titre} {d}")
+        ctx0 = contexte(bundle, titre, chemin_fichier(d))
+        x = ctx0 or nom_app(bundle)
+        source.setdefault(x, (bundle, ctx0))
         for t, sec in tr.items():
             cle = cle0
-            m = manuel_a(t, saisies)
+            m = manuel_a(t, saisies, ctx0)
             if m and (m.get("force") or not (cle0 != NON_CLASSE and famille(cle0) == PROJETS)):
                 cle = m["cle"]
             elif cle == NON_CLASSE:
                 cle = next((c for a, z, c in pl if a <= t < z), None) or resoudre_secours(sec_) or NON_CLASSE
-                if cle == NON_CLASSE and petit:
-                    cle = lisser(voisins, t)
+                if cle == NON_CLASSE and (petit or part):
+                    cle = lisser(voisins, t, part)
             tranches[t][cle] += sec
             ctx[t][x] += sec
     for m in saisies:
@@ -551,7 +670,8 @@ def frise(j):
         cle, _ = max(tranches[t].items(), key=lambda x: x[1])
         sortie.append({"t": t, "secondes": round(sum(tranches[t].values())), "cle": cle, "nom": NOMS.get(cle, cle),
                        "famille": famille(cle), "serie": serie(cle) if famille(cle) != HORS else HORS,
-                       "contexte": max(ctx[t].items(), key=lambda x: x[1])[0]})
+                       "contexte": (x := max(ctx[t].items(), key=lambda x: x[1])[0]),
+                       "app": source.get(x, ("", ""))[0], "source": source.get(x, ("", ""))[1]})
     return {"jour": j, "tranches": sortie,
             "plages": [{"motif": m, "cle": c, "nom": NOMS.get(c, c), "debut": a, "fin": z}
                        for m, a, z, c in plages(True) if a < j + JOUR + 3600 and z > j]}
@@ -619,12 +739,22 @@ def avec_session(idx, bundle, t, titre, doc):
     return titre, doc
 
 
+def reparer(titre, doc):
+    """Avant le 2026-11-24, un titre qui contenait « | » coupait mal le relevé : la fin du titre passait
+    dans l'adresse (« Boutique|https://… »). On recolle."""
+    if "|" in doc and not doc.startswith(("http", "/", "file:", "mailto:")):
+        debut, _, doc = doc.rpartition("|")
+        titre = f"{titre}|{debut}"
+    return titre, doc
+
+
 def mac(depuis, c, idx):
     if not BASE.exists():
         return
     con = sqlite3.connect(f"file:{BASE}?mode=ro", uri=True)
     for t, bundle, titre, doc, duree in con.execute(
             "select t, bundle, titre, doc, duree from releves where t >= ? and inactif = 0", (depuis,)):
+        titre, doc = reparer(titre, doc)
         titre, doc = avec_session(idx, bundle, t, titre, doc)
         c.ajouter(t, "Mac", bundle, duree, titre, doc)
 
@@ -718,7 +848,7 @@ def ecrire_jour(j, b, sig):
         pass
 
 
-SECTIONS_QUI_RANGENT = ["fusions", "forcer", "titres", "apps", "chemins", "alias", "ignorer", "dossiers", "plages", "missions", "reglages"]
+SECTIONS_QUI_RANGENT = ["fusions", "forcer", "titres", "partages", "apps", "chemins", "alias", "ignorer", "dossiers", "plages", "missions", "reglages"]
 _BRUTS = {}     # {minuit: Brut} des jours clos, gardés en mémoire
 _CLASSES = {}   # {minuit: Collecte} des jours clos, pour les règles en vigueur
 _SIG = {"sources": None, "regles": None}
@@ -749,7 +879,8 @@ def _par_jour(debut):
     sig = signature()
     # seules les sections qui rangent comptent : une fiche, un nom ou une couleur ne relancent pas le classement
     saisies = manuels()
-    regles = sig + json.dumps({k: REGLES.get(k) for k in SECTIONS_QUI_RANGENT}, sort_keys=True, ensure_ascii=False, default=str) + json.dumps(saisies)
+    regles = (sig + json.dumps({k: REGLES.get(k) for k in SECTIONS_QUI_RANGENT}, sort_keys=True, ensure_ascii=False, default=str)
+              + json.dumps(saisies) + json.dumps(sorted((n, sorted(c)) for n, c in noms_de_projets().items()), ensure_ascii=False))
     if _SIG["sources"] != sig:
         _BRUTS.clear()
     if _SIG["regles"] != regles:
@@ -997,6 +1128,12 @@ def fiche(cle):
     return REGLES.get("projets", {}).get(cle, {})
 
 
+def aussi_appeles():
+    """[(clé, autre nom)] : `aussi = ["…"]` dans la fiche d'un projet."""
+    return [(k, a) for k, f in REGLES.get("projets", {}).items() if isinstance(f, dict)
+            for a in f.get("aussi", []) if isinstance(a, str) and a.strip()]
+
+
 def projets(tous):
     """Chaque catégorie de travail : fiche, temps du mois, temps total, et bilan face au devis."""
     debut_mois = minuit(time.mktime(time.localtime()[:2] + (1, 0, 0, 0, 0, 0, -1)) + 3600)
@@ -1009,7 +1146,7 @@ def projets(tous):
             "cle": cle, "nom": NOMS.get(cle, cle), "famille": famille(cle),
             "total": round(reel), "mois": round(mois.tot.get(cle, 0)),
             "premier": min((j for j, c in tous.items() if c.tot.get(cle)), default=None),
-            "vendu": f.get("vendu"), "montant": f.get("montant"), "facturable": f.get("facturable", famille(cle) == PROJETS),
+            "vendu": f.get("vendu"), "montant": f.get("montant"), "aussi": list(f.get("aussi", [])), "facturable": f.get("facturable", famille(cle) == PROJETS),
             "taux": round(f["montant"] / (reel / 3600)) if f.get("montant") and reel >= 600 else None,
         })
     return sorted(sortie, key=lambda p: (p["famille"] != PROJETS, -p["total"]))
@@ -1064,6 +1201,8 @@ def vocabulaire():
         voc.setdefault(_norme(cle.split(" / ")[-1]), cle)
         voc.setdefault(_norme(cle.split(" / ")[0]), cle)
         voc.setdefault(_norme(NOMS.get(cle, cle).split(" / ")[-1]), cle)
+    for cle, alias in aussi_appeles():
+        voc[_norme(alias)] = cle
     return {k: v for k, v in voc.items() if len(k) >= 4}
 
 
@@ -1095,14 +1234,19 @@ class Apprenti:
                     self.mots[m][cle] += sec
 
     def suggerer(self, ctx):
+        return self.pourquoi(ctx)[0]
+
+    def pourquoi(self, ctx):
+        """(catégorie suggérée, raison lisible), ou (None, None)."""
         if not ctx:
-            return None
+            return None, None
         e = self.exact.get(ctx.lower())
         if e:
             cle, sec = max(e.items(), key=lambda x: x[1])
             if sec >= 0.8 * sum(e.values()):
-                return cle
+                return cle, tr(f"« {ctx} » y est déjà rangé ({hm(sec)})", f"“{ctx}” is already filed there ({hm(sec)})")
         score = defaultdict(float)
+        par_mot = defaultdict(list)
         for m in _mots(ctx):
             d = self.mots.get(m)
             if not d:
@@ -1111,12 +1255,15 @@ class Apprenti:
             cle, sec = max(d.items(), key=lambda x: x[1])
             if total >= 120 and sec / total >= 0.75:
                 score[cle] += (sec / total) * (1 + total / 3600) ** 0.5
+                par_mot[cle].append((m, sec))
         if not score:
-            return None
+            return None, None
         rang = sorted(score.items(), key=lambda x: -x[1])
         if rang[0][1] >= 1.2 and (len(rang) == 1 or rang[0][1] >= 2 * rang[1][1]):
-            return rang[0][0]
-        return None
+            cle = rang[0][0]
+            mots = ", ".join(f"« {m} »" for m, _ in sorted(par_mot[cle], key=lambda x: -x[1])[:3])
+            return cle, tr(f"Mots déjà rangés là : {mots}", f"Words already filed there: {mots}")
+        return None, None
 
 
 _apprenti = {}
@@ -1136,6 +1283,60 @@ def suggerer(voc, *textes):
     t = _norme(" ".join(x for x in textes if x))
     trouves = [k for k in voc if k in t]
     return voc[max(trouves, key=len)] if trouves else None
+
+
+def suggestion(c, voc, appris, cle_ligne):
+    """(suggestion, raison) d'une ligne non classée (appareil, app, contexte), dans l'ordre de l'écran Classer."""
+    ap, b, ctx = cle_ligne
+    p = c.proche(cle_ligne)
+    if p:
+        if est_partage(ctx):
+            return p, tr("Juste à côté, dans le même quart d'heure", "Right next to it, within the same quarter hour")
+        return p, tr("Le dossier le plus proche dans son chemin", "The nearest folder in its path")
+    if est_partage(ctx):
+        return None, None
+    s = suggerer(voc, ctx)
+    if s:
+        return s, tr("Son nom apparaît dans la source", "Its name appears in the source")
+    return appris.pourquoi(ctx) if appris else (None, None)
+
+
+def source(appareil, app, ctx, debut, fin):
+    """Le détail d'une ligne sur une période : titres de fenêtre, adresses ou chemins, et moments (Mac)."""
+    jours = par_jour(minuit(debut + 3600))
+    titres, adresses, quand = defaultdict(float), defaultdict(float), defaultdict(list)
+    for j in sorted(jours):
+        if j >= fin:
+            continue
+        b = _BRUTS.get(j) or _OUVERTS.get(j)
+        if not b:
+            continue
+        for (ap, bundle, titre, doc, _), (sec, tr_) in b.lignes.items():
+            if ap != appareil or bundle != app:
+                continue
+            d = "" if bundle == CLAUDE and any(doc.rstrip("/") == str(r) for r in RACINES) else doc
+            if contexte(bundle, titre, chemin_fichier(d)) != ctx:
+                continue
+            if tr_:   # Mac : seulement les tranches de la période (un créneau du ruban, par exemple)
+                dedans = {t: v for t, v in tr_.items() if debut - TRANCHE < t < fin}
+                if not dedans:
+                    continue
+                sec = sum(dedans.values())
+                quand[j] += list(dedans)
+            if titre:
+                titres[titre] += sec
+            if d:
+                adresses[chemin_fichier(d)] += sec
+    def top(d, n):
+        return [{"texte": k, "secondes": round(v)} for k, v in sorted(d.items(), key=lambda x: -x[1])[:n]]
+    moments = []   # créneaux réels : des tranches qui se suivent forment un seul moment
+    for j, ts in quand.items():
+        for t in sorted(set(ts)):
+            if moments and moments[-1]["jour"] == j and t <= moments[-1]["fin"]:
+                moments[-1]["fin"] = t + TRANCHE
+            else:
+                moments.append({"jour": j, "debut": t, "fin": t + TRANCHE})
+    return {"titres": top(titres, 5), "adresses": top(adresses, 3), "moments": sorted(moments, key=lambda m: m["debut"])}
 
 
 def main():

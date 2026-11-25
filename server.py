@@ -21,9 +21,11 @@ def familles(c, voc, appris=None):
     sortie = []
     for nom in ORDRE:
         postes = [{"cle": cle, "nom": rapport.NOMS.get(cle, cle), "secondes": round(s),
-                   "detail": [{"appareil": ap, "app": b, "contexte": ctx, "secondes": round(ss),
-                               "suggestion": (rapport.suggerer(voc, ctx) or (appris.suggerer(ctx) if appris else None))
-                               if nom == rapport.NON_CLASSE else None}
+                   "detail": [dict({"appareil": ap, "app": b, "contexte": ctx, "secondes": round(ss),
+                                    "partage": rapport.est_partage(ctx)},
+                                   **dict(zip(("suggestion", "raison"),
+                                              rapport.suggestion(c, voc, appris, (ap, b, ctx)) if nom == rapport.NON_CLASSE
+                                              else (None, None))))
                               for (ap, b, ctx), ss in sorted(c.detail[cle].items(), key=lambda x: -x[1]) if ss >= 30]}
                   for cle, s in f.get(nom, []) if s >= 60]
         if postes:
@@ -122,14 +124,22 @@ class Gestion(SimpleHTTPRequestHandler):
             cles = set(q.get("cle", []))
             l = [dict(m, nom=rapport.NOMS.get(m["cle"], m["cle"])) for m in rapport.manuels() if not cles or m["cle"] in cles]
             return self.json({"plages": sorted(l, key=lambda m: -m["debut"])})
+        if url.path == "/source":
+            q = parse_qs(url.query)
+            un = lambda k, d="": q.get(k, [d])[0]
+            return self.json(rapport.source(un("appareil", "Mac"), un("app"), un("contexte"),
+                                            float(un("debut", "0")), float(un("fin", str(time.time())))))
         if url.path == "/etat":
             return self.json({"disque": acces_disque(), "titres": alerte_titres() is None})
         if url.path == "/regles":
             rapport.recharger()
             r = rapport.REGLES
+            partages = rapport.tr("Sources partagées", "Shared sources")
             return self.json({"regles": [{"section": sec, "motif": m, "valeur": v, "nom": r.get("noms", {}).get(v, v)}
                                          for sec in ("fusions", "forcer", "titres", "apps", "chemins", "plages")
-                                         for m, v in r.get(sec, {}).items() if isinstance(v, str)]})
+                                         for m, v in r.get(sec, {}).items() if isinstance(v, str)]
+                              + [{"section": "partages", "motif": m, "valeur": "true", "nom": partages}
+                                 for m, v in r.get("partages", {}).items() if v]})
         if url.path != "/api":
             return super().do_GET()
         q = parse_qs(url.query)
@@ -150,6 +160,7 @@ class Gestion(SimpleHTTPRequestHandler):
             "categories": rapport.categories(rapport.fusion(tous, rapport.minuit(rapport.minuit(time.time()) - 29 * rapport.JOUR + 3600))),
             "travail": sum(x["secondes"] for x in f if x["nom"] != rapport.HORS),
             "histogramme": rapport.histogramme(tous),
+            "mois": [{"jour": j["jour"], "travail": j["travail"]} for j in rapport.histogramme(tous, n=30)],
             "reperes": rapport.reperes(tous),
             "couleurs": rapport.couleurs(),
             "couleurs_posees": list(rapport.REGLES.get("couleurs", {})),
@@ -253,7 +264,7 @@ class Gestion(SimpleHTTPRequestHandler):
             elif self.path == "/supprimer":
                 reponse = {"avant": regles.supprimer(d["cle"])}
             elif self.path == "/manuel":
-                m = rapport.ajouter_manuel(d["debut"], d["fin"], d["cle"], d.get("note", ""), bool(d.get("force")))
+                m = rapport.ajouter_manuel(d["debut"], d["fin"], d["cle"], d.get("note", ""), bool(d.get("force")), d.get("motif", ""))
                 reponse = {"avant": m["id"], "plage": m}
             elif self.path == "/manuel/retirer":
                 reponse = {"avant": rapport.retirer_manuel(d["id"])}

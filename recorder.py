@@ -35,7 +35,9 @@ def osa(script, fichier=False):
 
 
 def releve():
-    bundle, titre, doc = (osa(str(ICI / "capture.applescript"), True).split("|", 2) + ["", ""])[:3]
+    # bundle | titre | adresse : un titre peut contenir « | » (« Compte | Boutique »), une adresse presque jamais
+    bundle, _, reste = osa(str(ICI / "capture.applescript"), True).partition("|")
+    titre, _, doc = reste.rpartition("|") if "|" in reste else (reste, "", "")
     try:
         if bundle == "com.apple.mail":
             # titre : « compte / boîte » ; doc : l'adresse du correspondant

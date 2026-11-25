@@ -10,11 +10,13 @@ I built it for my own use as an independent graphic designer: I wanted to know h
 
 ## What you do with it
 
-**In the menu bar**, today's total of work. Click it and a panel shows the last seven days as bars colored by domain (click a bar to see that day), your weekly targets, then the time per project, grouped by domain. Each line opens up on what it is made of: files, websites, messages…
+**In the menu bar**, today's total of work. Click it and a panel shows the day as a ribbon colored by project, where unsorted time appears hatched at the hour it happened. Over 7 days it gives way to the week's bars, over 30 days to a month calendar; click a day to open it. Below come your longest projects, grouped under their domain. Each line opens up on what it is made of: files, websites, messages…
 
-**Sorting what is unsorted.** “Unsorted” time is orange, because it is the one thing to act on. Click a line to open the Sort screen: choose the scope (this site or the whole domain, this contact or the whole mailbox, the whole app), then the project, which you can create by typing its name. The rule applies to all past time too, and an “Undo” bar stays for a few seconds.
+**Sorting what is unsorted.** “Unsorted” time is orange, because it is the one thing to act on. Its card shows the first sources with their suggestion: one click (or Return) accepts it without leaving the panel. Otherwise, click a line to open the Sort screen: choose the scope (this site or the whole domain, this contact or the whole mailbox, the whole app, or just this once, with no rule), then the project, which you can create by typing its name. The details under the line show the window titles, the address and the moments, and the suggestion says where it comes from. It is the same screen wherever you file something: a line in the panel or the window, sorted or not, a slot of the ribbon, a file in a project's sheet. The rule applies to all past time too, and an “Undo” bar stays for a few seconds.
 
 ![Sorting a line](captures/en/2-classer.png)
+
+**Shared sources.** A supplier that serves several clients (an online printer, a stock photo site) can be marked as shared: it never gets a rule and takes the project you work on right before and after it. When there is one on a single side only, Temps suggests it without filing anything.
 
 **Suggestions** come from what you have already sorted: a site, a title or a word that almost always leads to the same project. One button accepts them all, and a single undo takes them back. There is no AI involved, it is plain computation on your Mac.
 
@@ -50,7 +52,7 @@ For what happens away from the Mac (a meeting, an appointment, an hour of sketch
 
 - Every 10 seconds it records the app in front, the window title and, whenever the app allows it, the detail of what you are doing there: the open file, the web page, the message you are reading, the selected note or task. Apps that expose neither a file nor a title only show up under their name.
 - After two minutes without keyboard or mouse, the whole idle period is removed, unless a video or a call is playing.
-- Files stored under a projects root sort themselves: `Studio/Clients/Smith/mockup.indd` becomes “Studio / Smith”.
+- Files stored under a projects root sort themselves: `Studio/Clients/Smith/mockup.indd` becomes “Studio / Smith”. Elsewhere on disk, a folder named after one of your projects is enough. When a project goes by another name than its folder (a client's brand, say), add the client's name under “Also known as” in its sheet.
 - iPhone and iPad time comes from synced Screen Time; without a rule it counts as off work. The menu bar figure only counts work.
 
 ## Installation
@@ -78,6 +80,8 @@ This builds `Temps.app` in the folder. `./macos/paquet.sh` also builds the ready
 
 Temps.app is the interface, and it also runs the background work: the recorder and a small local server on 127.0.0.1:8230.
 
+As long as a permission is missing, the panel opens on the list of the three permissions, with a button to each pane of System Settings; each line turns green once done.
+
 1. In **System Settings > Privacy & Security > Full Disk Access**, add `Temps.app`. Without it, Temps cannot read Screen Time.
 2. macOS then asks for **Accessibility** and **Automation** (System Events, Mail, Safari…): accept, this is how Temps reads the file and window in front.
 3. For iPhone and iPad, turn on **Share Across Devices** in Screen Time.
@@ -94,7 +98,8 @@ On first launch, Temps creates `rules.toml` from `rules.example.toml`: in `~/Lib
 | `[familles]` | What counts as an activity (`activites`: Mail, Admin…) or as off work (`hors_travail`). Everything else is a project. |
 | `[titres]`, `[apps]`, `[chemins]` | Sorting rules: text in a title, URL or address; an app; a path prefix. |
 | `[noms]`, `[alias]` | A category's displayed name, and the link when a folder was renamed. |
-| `[projets]` | Project sheets: hours sold (`vendu`), amount excl. tax in your Mac's currency (`montant`), billable (`facturable`). |
+| `[projets]` | Project sheets: hours sold (`vendu`), amount excl. tax in your Mac's currency (`montant`), billable (`facturable`), other names of the project (`aussi`). |
+| `[partages]` | Sources shared across projects: they follow the project around them. |
 | `[reperes]` | Weekly targets (`heures`) or caps (`plafond`). |
 | `[domaines]` | Domains, in their order: their nature and the projects they hold. |
 | `[missions]` | The start date of a mission. |
@@ -105,7 +110,7 @@ On first launch, Temps creates `rules.toml` from `rules.example.toml`: in `~/Lib
 
 ## Shortcuts
 
-While the window is open, Temps has its own menu: ⌘1 to ⌘4 for To sort, Overview, Projects and Review, ⌘E to export the current month.
+While the window is open, Temps has its own menu: ⌘1 to ⌘3 for Overview, Projects and Review, ⌘0 for To sort, ⌘E to export the current month.
 
 ## Demo mode
 

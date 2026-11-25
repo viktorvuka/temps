@@ -25,7 +25,7 @@ if [ -z "$SDK" ]; then
     swiftc -sdk "$s" -typecheck -target arm64-apple-macos14 "$ESSAI" 2>/dev/null && { SDK=$s; break; }
   done
 fi
-swiftc -sdk "$SDK" -O -parse-as-library -target arm64-apple-macos14 "$ICI/Temps.swift" "$ICI/Window.swift" "$ICI/Settings.swift" "$ICI/Projets.swift" -o "$APP/Contents/MacOS/Temps"
+swiftc -sdk "$SDK" -O -parse-as-library -target arm64-apple-macos14 "$ICI/Temps.swift" "$ICI/Window.swift" "$ICI/Settings.swift" "$ICI/Projets.swift" "$ICI/Systeme.swift" -o "$APP/Contents/MacOS/Temps"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -37,7 +37,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Temps</string>
   <key>CFBundleIconFile</key><string>Temps</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.3</string>
+  <key>CFBundleShortVersionString</key><string>1.4</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Lire la fenêtre et le fichier au premier plan.</string>

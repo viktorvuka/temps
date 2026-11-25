@@ -148,6 +148,90 @@ class PlagesSaisies(unittest.TestCase):
         self.assertAlmostEqual(c.tot["Studio / Martin"], 600)     # seulement ce que le Mac a relevé
         self.assertNotIn("Studio / Dupont", {k for k, v in c.tot.items() if v})
 
+    def test_un_dossier_au_nom_d_un_projet_le_range(self):
+        r._MEMO.clear()
+        self.assertEqual(r.classer("com.adobe.illustrator", "", "/Volumes/Disque/Clients/DUPONT/02 - Logo/logo.ai"), "Studio / Dupont")
+
+    def test_un_chemin_entremele_ne_fait_qu_une_suggestion(self):
+        r._MEMO.clear()
+        doc = "/Volumes/Disque/Dupont/Durand/logo.ai"
+        self.assertEqual(r.classer("com.adobe.illustrator", "", doc), r.NON_CLASSE)
+        b = r.Brut()
+        b.ajouter(1_700_000_400, "Mac", "com.adobe.illustrator", 600, doc=doc)
+        c = b.classer()
+        self.assertEqual(c.proche(("Mac", "com.adobe.illustrator", "logo.ai")), "Studio / Durand")
+
+    def test_un_autre_nom_du_projet_range_son_dossier(self):
+        r.REGLES["projets"]["Studio / Martin"] = {"aussi": ["Jeanne Martin-Roy"]}
+        self.addCleanup(lambda: r.REGLES["projets"].pop("Studio / Martin"))
+        r._MEMO.clear(); r._NOMS_DOSSIERS.clear()
+        self.addCleanup(r._NOMS_DOSSIERS.clear)
+        self.assertEqual(r.classer("com.apple.finder", "", "/Volumes/Disque/Clients/JeanneMartinRoy/cartes/"), "Studio / Martin")
+        self.assertEqual(r.suggerer(r.vocabulaire(), "jeanne.martinroy@exemple.org"), "Studio / Martin")   # son adresse aussi
+        self.assertEqual(r.suggerer(r.vocabulaire(), "Devis Jeanne Martin-Roy"), "Studio / Martin")
+
+    def test_un_nom_de_groupe_ne_range_rien(self):
+        r._MEMO.clear()
+        self.assertEqual(r.classer("com.adobe.illustrator", "", "/Volumes/Disque/Studio/logo.ai"), r.NON_CLASSE)
+
+    def _partage(self):
+        r.PARTAGES, r._MEMO = ["imprimeur.fr"], {}
+        self.addCleanup(lambda: (setattr(r, "PARTAGES", []), r._MEMO.clear()))
+
+    def test_une_source_partagee_suit_le_projet_autour(self):
+        self._partage()
+        b = r.Brut()
+        t0 = 1_700_000_400
+        b.ajouter(t0, "Mac", "com.app", 300, titre="exemple.fr")             # Studio / Dupont, puis…
+        b.ajouter(t0 + 300, "Mac", "com.apple.Safari", 300, titre="Commande", doc="https://www.imprimeur.fr/panier")
+        b.ajouter(t0 + 600, "Mac", "com.app", 300, titre="exemple.fr")       # …retour à Studio / Dupont
+        c = b.classer()
+        self.assertAlmostEqual(c.tot["Studio / Dupont"], 900)
+        self.assertEqual(c.tot.get(r.NON_CLASSE, 0), 0)
+
+    def test_une_source_partagee_d_un_seul_cote_est_suggeree(self):
+        self._partage()
+        b = r.Brut()
+        t0 = 1_700_000_400
+        b.ajouter(t0, "Mac", "com.app", 600, titre="exemple.fr")
+        b.ajouter(t0 + 600, "Mac", "com.apple.Safari", 600, doc="https://www.imprimeur.fr/")
+        c = b.classer()
+        self.assertAlmostEqual(c.tot[r.NON_CLASSE], 600)
+        self.assertEqual(c.proche(("Mac", "com.apple.Safari", "www.imprimeur.fr")), "Studio / Dupont")
+
+    def test_une_source_partagee_ne_suit_pas_une_activite(self):
+        self._partage()
+        b = r.Brut()
+        t0 = 1_700_000_400
+        b.ajouter(t0, "Mac", "com.apple.mail", 600)                          # Mail : une activité
+        b.ajouter(t0 + 600, "Mac", "com.apple.Safari", 600, doc="https://www.imprimeur.fr/")
+        self.assertAlmostEqual(b.classer().tot[r.NON_CLASSE], 600)
+
+    def test_une_source_partagee_seule_reste_a_classer(self):
+        self._partage()
+        b = r.Brut()
+        b.ajouter(1_700_000_400, "Mac", "com.apple.Safari", 600, doc="https://www.imprimeur.fr/")
+        self.assertAlmostEqual(b.classer().tot[r.NON_CLASSE], 600)
+
+    def test_une_page_precise_passe_avant_la_source_partagee(self):
+        self._partage()
+        r.REGLES["titres"]["Devis Martin"] = "Studio / Martin"
+        self.addCleanup(lambda: r.REGLES["titres"].pop("Devis Martin"))
+        b = r.Brut()
+        b.ajouter(1_700_000_400, "Mac", "com.apple.Safari", 600, titre="Devis Martin", doc="https://www.imprimeur.fr/")
+        self.assertAlmostEqual(b.classer().tot["Studio / Martin"], 600)
+
+    def test_juste_cette_fois_ne_range_que_la_source(self):
+        b = r.Brut()
+        t0 = 1_700_000_400
+        b.ajouter(t0, "Mac", "com.apple.Safari", 600, doc="https://www.imprimeur.fr/")
+        b.ajouter(t0, "Mac", "com.app", 300, titre="exemple.fr")
+        m = {"id": "a", "debut": t0 - 3600, "fin": t0 + 3600, "cle": "Studio / Martin", "note": "",
+             "force": True, "motif": "www.imprimeur.fr"}
+        c = b.classer((), [m])
+        self.assertAlmostEqual(c.tot["Studio / Martin"], 600)     # rien ajouté hors du Mac
+        self.assertAlmostEqual(c.tot["Studio / Dupont"], 300)     # l'autre ligne ne bouge pas
+
 
 class Domaines(unittest.TestCase):
     def test_la_nature_du_domaine_donne_la_famille(self):
