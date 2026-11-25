@@ -59,7 +59,7 @@ For what happens away from the Mac (a meeting, an appointment, an hour of sketch
 
 ### The easy way: the ready-made app
 
-Download `Temps-1.2-macOS-arm64.zip` from the [Releases](https://github.com/viktorvuka/temps/releases/latest), open it and move `Temps.app` to Applications. It carries everything it needs, Python included: nothing else to install. You need a Mac with Apple silicon (M1 or later) and macOS 14 or later.
+Download `Temps-1.4-macOS-arm64.zip` from the [Releases](https://github.com/viktorvuka/temps/releases/latest), open it and move `Temps.app` to Applications. It carries everything it needs, Python included: nothing else to install. You need a Mac with Apple silicon (M1 or later) and macOS 14 or later.
 
 The app is not notarized by Apple. On first launch, macOS blocks it: open System Settings > Privacy & Security, scroll down to the message about Temps and click “Open Anyway”. You only do this once. Then follow the first-launch steps below.
 

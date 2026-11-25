@@ -62,7 +62,7 @@ Après deux minutes sans toucher le clavier ni la souris, il retire toute la pé
 
 ### Le plus simple : l'app toute prête
 
-Télécharge `Temps-1.2-macOS-arm64.zip` dans les [Releases](https://github.com/viktorvuka/temps/releases/latest), ouvre-le et range `Temps.app` dans Applications. Elle contient tout ce qu'il lui faut, Python compris : rien d'autre à installer. Il faut un Mac avec une puce Apple (M1 ou plus récent) et macOS 14 ou plus.
+Télécharge `Temps-1.4-macOS-arm64.zip` dans les [Releases](https://github.com/viktorvuka/temps/releases/latest), ouvre-le et range `Temps.app` dans Applications. Elle contient tout ce qu'il lui faut, Python compris : rien d'autre à installer. Il faut un Mac avec une puce Apple (M1 ou plus récent) et macOS 14 ou plus.
 
 L'app n'est pas notarisée par Apple. Au premier lancement, macOS la bloque : va dans Réglages Système > Confidentialité et sécurité, descends jusqu'au message sur Temps et clique sur « Ouvrir quand même ». C'est à faire une seule fois. Ensuite, suis les trois étapes du premier lancement plus bas.
 
